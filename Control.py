@@ -4,16 +4,22 @@ from Variables import *
 import numpy as np
 
 def printA(x):
+    """
+    This takes an angle and turns it into a + or - angle, so it is between -180 and +180
+    """
     x %= 360
     if x > 180:
         x = -180 + x-180
     return x
 
 def aoa(x):
+    """
+    Angle of Attack, takes the angle of the boat and turns it into the angle of the foil???
+    """
     x = printA(x)
     # if x < 0:
     #     return -44/90*x
-    return 44/90*x
+    return (44/90)*x
     # return -0.5*x+44#4/9
 
 class Controler():
@@ -23,11 +29,18 @@ class Controler():
         # self.course = []
 
     def __init__(self,Boat, polars = "test.pol"):
-        self.boat = Boat
-        self.polars = self.readPolar(polars)
+        """
+        Intialize the boat, polars, and course of the boat.
+        """
+        self.boat = Boat # sets boat to object of boat class
+        self.polars = self.readPolar(polars) 
         self.course = []
 
     def plan(self,plantype,waypoints):
+        """
+        Plan: plot an ideal course for the boat to take given the event type and buoy waypoints
+        """
+        # Type of self.boat.position is Vector.
         course = [[self.boat.position.xcomp(),self.boat.position.ycomp()]]# Course will comprise of a sequence of checkpoints creating a good path
         #type can either E(ndurance), S(tation Keeping), p(recision Navigation), w(eight/payload),
         if plantype == "e":#endurance
@@ -35,15 +48,23 @@ class Controler():
             # 4 Buoy in order of navigation
             n = 4
             course.extend(self.leg([self.boat.position.xcomp(), self.boat.position.ycomp()], waypoints[0]))
-
+            # course is a list of xcomps and ycomps. This is computed using leg function
+            
+            #code to do one repetition of the course:
             c2 = self.leg(waypoints[0],waypoints[1])
             c2.extend(self.leg(waypoints[1],waypoints[2]))
             c2.extend(self.leg(waypoints[2],waypoints[3]))
             c2.extend(self.leg(waypoints[3],waypoints[0]))
+            #append for laps of the course to the main course list 
             course.extend(c2*n)
+            #remove the last step since you don't need to return to the start buoy, just the dock at the end
             course.pop()
+            #return to the dock: 
             course.extend(self.leg(waypoints[3],[self.boat.position.xcomp(), self.boat.position.ycomp()]))
         elif plantype == "s":#station keeping
+            """
+            deprecated
+            """
             #4 Buoy in any order
             # center
             # course.extend(self.leg([self.boat.position.xcomp(), self.boat.position.ycomp()], [sum(p[0] for p in waypoints)/len(waypoints),sum(p[1] for p in waypoints)/len(waypoints)]))
@@ -67,8 +88,12 @@ class Controler():
         return course
 
     def leg(self, start, stop):
+        """ 
+        start and stop is a coord pos
+        """
         angle = Angle(1,math.atan2(stop[1]-start[1],stop[0]-start[0])*180/math.pi)
         apparentAngle = abs(printA(Angle.norm(self.boat.wind.angle+Angle(1,180)-angle).calc()))
+        # find angle between -180 and +180 
         if apparentAngle < self.polars[-1][0]: # upwind
             # We want to get to stop only using the upwind BVMG
             v = Vector(Angle(1,round(math.atan2(stop[1]- start[1],stop[0]- start[0])*180/math.pi*10000)/10000),math.sqrt((stop[0]- start[0])**2+(stop[1]- start[1])**2))
@@ -135,6 +160,7 @@ class Controler():
             if i.split(c)[0] != '':
                 rtn.append([float(x) for x in i.split(c)])
         rtn.append([float(x) for x in text[-1].split(";")[1:]])
+        print(rtn)
         return rtn
 
     def update(self,dt,rNoise= 2,stability=1): # less noise = faster rotation, stability tries to limit angular momentum
