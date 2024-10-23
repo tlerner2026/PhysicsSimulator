@@ -33,7 +33,7 @@ class boatDisplayShell():
         self.refLat =refLat
     def initAuto(self):
         #This function needs to be ran after some other stuff
-        # waypointsPr = [
+        #waypointsPr = [
         #     [self.boat.position.xcomp()-meter2degreeX(1.5,self.refLat),self.boat.position.ycomp()],
         #     [self.boat.position.xcomp()-meter2degreeX(1.5,self.refLat)-meter2degreeX(25,self.refLat),self.boat.position.ycomp()-meter2degreeY(25*math.sqrt(3))],
         #     [self.boat.position.xcomp()+meter2degreeX(1.5,self.refLat)+meter2degreeX(25,self.refLat),self.boat.position.ycomp()-meter2degreeY(25*math.sqrt(3))],
@@ -51,8 +51,8 @@ class boatDisplayShell():
             [self.boat.position.xcomp()-meter2degreeX(20,self.refLat),self.boat.position.ycomp()+meter2degreeY(40)],
             [self.boat.position.xcomp()-meter2degreeX(20,self.refLat),self.boat.position.ycomp()],
         ]
-        self.courseType = "s"
-        self.buoy(self.waypoints)
+        self.courseType = "s" # E(ndurance), S(tation Keeping), p(recision Navigation), w(eight/payload),
+        self.buoy(self.waypoints) # or .waypointsPr maybe
         self.autopilot = Controler(self.boat)
     def buoy(self,points):
         for p in points:
