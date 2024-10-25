@@ -28,7 +28,7 @@ class Controler():
         # self.polars = self.readPolar(polars)
         # self.course = []
 
-    def __init__(self,Boat, polars = "test.pol"):
+    def __init__(self,Boat, polars = "test.pol"): # test.pol or MarPol.pol?
         """
         Intialize the boat, polars, and course of the boat.
         """
