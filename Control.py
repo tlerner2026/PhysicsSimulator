@@ -89,11 +89,16 @@ class Controler():
 
     def leg(self, start, stop):
         """ 
-        start and stop is a coord pos
+        The purpose of leg is when given a start point and stop point it checks if the straight line
+        involves going upwind or downwind. If it is upwind or downwind it creates an intermediate point
+        based on the boats polars to allow for tacking or jibbing. 
+        Between two buoys it only does a single tack.
+        Waypoints are buoys.
         """
         angle = Angle(1,math.atan2(stop[1]-start[1],stop[0]-start[0])*180/math.pi)
         apparentAngle = abs(printA(Angle.norm(self.boat.wind.angle+Angle(1,180)-angle).calc()))
-        # find angle between -180 and +180 
+        # apparent angle is the wind angle relative to the boat between -180 and +180 
+        # get the last element of self.polars
         if apparentAngle < self.polars[-1][0]: # upwind
             # We want to get to stop only using the upwind BVMG
             v = Vector(Angle(1,round(math.atan2(stop[1]- start[1],stop[0]- start[0])*180/math.pi*10000)/10000),math.sqrt((stop[0]- start[0])**2+(stop[1]- start[1])**2))
@@ -106,6 +111,8 @@ class Controler():
             b = Dj/D # number of j vectors
             k.norm *= a
             j.norm *= b
+            # calculates the ideal tacking point
+            # calculates the ideal intermediate point between start and end if you are going upwind
             ans = [[start[0]+k.xcomp(),start[1]+k.ycomp()],stop]
             return  ans
         elif apparentAngle > self.polars[-1][1]: #downwind
@@ -119,9 +126,12 @@ class Controler():
             b = Dj/D # number of j vectors
             k.norm *= a
             j.norm *= b
+            # calculates the ideal jibbing point
+            # calculates the ideal intermediate point between start and end if you are going downwind
             ans = [[start[0]+k.xcomp(),start[1]+k.ycomp()],stop]
             return  ans
 
+        # if the straightline doesnt go upwind or downwind it returns the end buoy
         return [stop]
     
     # NOTE: I've desided using best course to next mark while probably the optimal solution brings in a level of complexity that we do not
@@ -160,7 +170,7 @@ class Controler():
             if i.split(c)[0] != '':
                 rtn.append([float(x) for x in i.split(c)])
         rtn.append([float(x) for x in text[-1].split(";")[1:]])
-        print(rtn)
+        print(rtn) #prints a list corresponding to a boat angle relative to wind of lists of speeds corresponding to wind speeds
         return rtn
 
     def update(self,dt,rNoise= 2,stability=1): # less noise = faster rotation, stability tries to limit angular momentum
