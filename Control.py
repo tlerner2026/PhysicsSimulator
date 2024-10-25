@@ -101,6 +101,16 @@ class Controler():
         # get the last element of self.polars
         if apparentAngle < self.polars[-1][0]: # upwind
             # We want to get to stop only using the upwind BVMG
+            """
+            we want to get to stop only using the upwind BVMG
+            variables:
+            - v: vector representing the direction and distance from start to stop
+                - Angle(...) calculates the angle in degrees
+                - math.sqrt(...) calculates the Euclidean distance
+            - k and j: vectors representing optimal tacking directions relative to the wind
+            - D, Dk, Dj: determinants that solve the linear system, finding how much of k and j vectors are needed to account for the winds effect while reaching the destination
+            - a, b: scaling factors for vectors k and j respectively, determining how much the boat should follow each vector (tacking directions)
+            """
             v = Vector(Angle(1,round(math.atan2(stop[1]- start[1],stop[0]- start[0])*180/math.pi*10000)/10000),math.sqrt((stop[0]- start[0])**2+(stop[1]- start[1])**2))
             k = Vector(self.boat.wind.angle+Angle(1,180+self.polars[-1][0]),1)
             j = Vector(self.boat.wind.angle+Angle(1,180-self.polars[-1][0]),1)
@@ -116,6 +126,15 @@ class Controler():
             ans = [[start[0]+k.xcomp(),start[1]+k.ycomp()],stop]
             return  ans
         elif apparentAngle > self.polars[-1][1]: #downwind
+            """
+            variables:
+            - v: vector representing the direction and distance from start to stop
+                - Angle(...) calculates the angle in degrees
+                - math.sqrt(...) calculates the Euclidean distance
+            - k and j: vectors representing two optimal gybing directions based on the wind
+            - D, Dk, Dj: determinants that solve the linear system, finding how much of k and j vectors are needed to account for the winds effect while reaching the destination
+            - a, b: scaling factors for vectors k and j respectively, determining how much the boat should follow each vector (gybing directions)
+            """
             v = Vector(Angle(1,round(math.atan2(stop[1]- start[1],stop[0]- start[0])*180/math.pi*10000)/10000),math.sqrt((stop[0]- start[0])**2+(stop[1]- start[1])**2))
             k = Vector(self.boat.wind.angle+Angle(1,180+self.polars[-1][1]),1)
             j = Vector(self.boat.wind.angle+Angle(1,180-self.polars[-1][1]),1)
@@ -170,21 +189,33 @@ class Controler():
             if i.split(c)[0] != '':
                 rtn.append([float(x) for x in i.split(c)])
         rtn.append([float(x) for x in text[-1].split(";")[1:]])
-        print(rtn) #prints a list corresponding to a boat angle relative to wind of lists of speeds corresponding to wind speeds
+        # print(rtn) # prints a list corresponding to a boat angle relative to wind of lists of speeds corresponding to wind speeds
         return rtn
 
+
     def update(self,dt,rNoise= 2,stability=1): # less noise = faster rotation, stability tries to limit angular momentum
+        """
+        Updates the rudder and sail to maintain course stability, adjusted on noise and stability parameters
+        """
         self.updateRudder(rNoise,stability)
         self.updateSails()
 
-    def isEnp(self,a1,a2):
+    def isEnp(self,a1,a2): # Enp means something like "Enroulement de Point" (French for "gybe point")
+        """
+        Checks if the wind direction lies between two angles to check if gybing is necessary
+        Returns True if gybing is necessary, and False if it is not
+        """
         a1 = Angle.norm(a1).calc()
         a2 = Angle.norm(a2).calc()
         wind = Angle.norm(self.boat.wind.angle).calc()
         if (a1 < wind and wind < a2) or (a2 < wind and wind < a1):
             return True
         return False
-    def isVir(self,a1,a2):
+    def isVir(self,a1,a2): # Vir means something like "Virer" (French for "to tack")
+        """
+        Checks if the wind direction (reversed by 180 deg) lies between two angles to check if tacking is necessary
+        Returns True if tacking is necessary, and False if it is not
+        """
         a1 = Angle.norm(a1).calc()
         a2 = Angle.norm(a2).calc()
         wind = Angle.norm(self.boat.wind.angle+Angle(1,180)).calc()
@@ -193,37 +224,61 @@ class Controler():
         return False
 
     def nextP(self):
-        r = 5#7meter radius to play it safe
+        """
+        Determines when the boat has reached the next point on its course and checks if a tack or gybe is necessary based on wind direction
+        """
+        r = 5# the distance from boat to waypoint to qualify as having reached it; 7 meter radius to play it safe
+
         dy = (self.boat.position.ycomp() - self.course[0][1])
         dx = (self.boat.position.xcomp() - self.course[0][0])
-        dist = degree2meter(math.sqrt(dx**2 + dy**2))
-        if dist < r:
-            a1 =Angle(1,round(math.atan2(dy,dx)*180/math.pi*10000)/10000)
-            a2 =Angle(1,round(math.atan2(self.course[1][1]- self.course[0][1],self.course[1][0]-self.course[0][0])*180/math.pi*10000)/10000)
-            self.course.pop(0)
-            if self.isEnp(a1,a2): #gybe
+        dist = degree2meter(math.sqrt(dx**2 + dy**2)) # Euclidean distance from boat to buoy
+        if dist < r: # if the actual distance between boat and buoy is less then r, the waypoint has been reached
+            a1 =Angle(1,round(math.atan2(dy,dx)*180/math.pi*10000)/10000) # angle between boat and current waypoint
+            a2 =Angle(1,round(math.atan2(self.course[1][1]- self.course[0][1],self.course[1][0]-self.course[0][0])*180/math.pi*10000)/10000) # angle between the current waypoint and next waypoint
+            self.course.pop(0) # removes current waypoint from course
+            if self.isEnp(a1,a2): # gybe necessary
                 return 1
-            if self.isVir(a1,a2):#tacking
+            if self.isVir(a1,a2): # tacking necessary
                 return 2
-        return 0 
+        return 0 # no gybe or tack necessary
+
     def updateRudder(self,rNoise,stability):
-        self.nextP()
-        if self.course[0][0] == -1:
+        """
+        Updates the rudder's angle in order to adjust the boat's heading
+        """
+        self.nextP() # gybe/tack check
+
+        if self.course[0][0] == -1: 
             #mise à la cape sous GV
+
+            """
+            Mise à la cape - heaving to
+            sous - under
+            GV - Grand Voile - mainsail
+
+            mise à la cape sous GV - heaving to under mainsail
+
+            Seems like this is where Henri intended to have certain conditions result in the boat stopping
+            movement, like what we planned to do in station keeping
+            """
             pass
+
         dx = self.course[0][0]-self.boat.position.xcomp()
         dy = self.course[0][1]-self.boat.position.ycomp()
-        target_angle = Angle(1,math.atan2(dy,dx)*180/math.pi)
+        target_angle = Angle(1,math.atan2(dy,dx)*180/math.pi) # angle between boat and waypoint; aka the target angle
         #target_angle = angle
-        current_angle = self.boat.linearVelocity.angle
-        dtheta = (target_angle - current_angle).calc()
-        rotV = self.boat.rotationalVelocity*180/math.pi *0.03
+        current_angle = self.boat.linearVelocity.angle # current angle of boats velocity
+        dtheta = (target_angle - current_angle).calc() # difference in current angle and target angle
+        rotV = self.boat.rotationalVelocity*180/math.pi *0.03 
         # coeff = 1-(1/(dtheta.calc()*(1/rotV)+1))
         dtheta = printA(dtheta)
-        coeff = 2/math.pi * math.atan((dtheta)/40 - rotV/stability)
-        self.boat.hulls[-1].angle = Angle(1,-10*coeff)*rNoise
+        coeff = 2/math.pi * math.atan((dtheta)/40 - rotV/stability) # adjust rudder angle based on dtheta, rotational velocity, and stability (stability is a smoothing factor)
+        self.boat.hulls[-1].angle = Angle(1,-10*coeff)*rNoise # set new rudder angle
     
     def updateRudderAngle(self,rNoise,stability,angle):
+        """
+        Updates the rudder's angle based on a given target angle rather then calculating it from the boat's position and course
+        """
         target_angle = angle
         current_angle = self.boat.linearVelocity.angle
         dtheta = (target_angle - current_angle).calc()
@@ -234,6 +289,9 @@ class Controler():
         self.boat.hulls[-1].angle = Angle(1,-10*coeff)*rNoise
     
     def updateSails(self):
+        """
+        Updates the angle of the boat's sails based on the apparent wind direction
+        """
         #angle = Angle.norm(self.boat.angle + Angle(1,90)-self.boat.globalAparentWind().angle+Angle(1,180)).calc()
         wind = self.boat.globalAparentWind().angle
         wind += Angle(1,180)
