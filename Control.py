@@ -112,13 +112,13 @@ class Controler():
             - a, b: scaling factors for vectors k and j respectively, determining how much the boat should follow each vector (tacking directions)
             """
             v = Vector(Angle(1,round(math.atan2(stop[1]- start[1],stop[0]- start[0])*180/math.pi*10000)/10000),math.sqrt((stop[0]- start[0])**2+(stop[1]- start[1])**2))
-            k = Vector(self.boat.wind.angle+Angle(1,180+self.polars[-1][0]),1)
-            j = Vector(self.boat.wind.angle+Angle(1,180-self.polars[-1][0]),1)
+            k = Vector(self.boat.wind.angle+Angle(1,180+self.polars[-1][0]),1) # to the right of the no sail zone
+            j = Vector(self.boat.wind.angle+Angle(1,180-self.polars[-1][0]),1) # to the left of the no sail zone
             D = np.linalg.det(np.array([[k.xcomp(),j.xcomp()],[k.ycomp(),j.ycomp()]]))
             Dk = np.linalg.det(np.array([[v.xcomp(),j.xcomp()],[v.ycomp(),j.ycomp()]]))
             Dj = np.linalg.det(np.array([[k.xcomp(),v.xcomp()],[k.ycomp(),v.ycomp()]]))
-            a = Dk/D # number of k vectors
-            b = Dj/D # number of j vectors
+            a = Dk/D # number of k vectors; aka how far to sail along k
+            b = Dj/D # number of j vectors; aka how far to sail along j
             k.norm *= a
             j.norm *= b
             # calculates the ideal tacking point
@@ -249,7 +249,7 @@ class Controler():
         self.nextP() # gybe/tack check
 
         if self.course[0][0] == -1: 
-            #mise à la cape sous GV
+            # mise à la cape sous GV
 
             """
             Mise à la cape - heaving to
