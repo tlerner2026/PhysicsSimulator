@@ -1,4 +1,4 @@
-**This is the second iteration of the Kehillah Sailbot boat simulation program.**\
+**This is the third iteration of the Kehillah Sailbot boat simulation program for the 2024-2025 Sailbot competition**\
 *This is a simulation program to allow for the creation of a navigation program, I don't expect this to run on the final boat.*
 # Main Goal:
 * Simulate aero and hydro dynamic forces on boat sails and hulls
@@ -38,6 +38,10 @@
 * ## Angles
     * Always in degrees unless there is a good reason
     * Pyglet angles (do not loop, can be negative)
+       * Wind of 90 = Wind blowing North
+       * Wind of 270 = Wind blowing South
+       * Wind of 0 = Wind blowing East
+       * Wind of 180 = Wind blowing West
     ```
            | 90
          0--- 180 
