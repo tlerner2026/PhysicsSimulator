@@ -3,8 +3,8 @@ from Variables import *
 
 class StationKeepingController:
     """
-    controller for station keeping behavior - manages keeping the boat within a defined area
-    works in conjunction with the main Controller class but handles the specialized logic needed for drifting
+    Controller for station keeping behavior - manages keeping the boat within a defined area
+    Works in conjunction with the main Controller class but handles the specialized logic needed for drifting
     """
 
     def __init__(self, boat, waypoints, controller):
@@ -13,25 +13,25 @@ class StationKeepingController:
         self.state = "ENTERING"  # to be improved
         self.controller = controller
         
-        # calculate center of boundary box for reference point
+        # Calculate center of boundary box for reference point
         self.center_x = sum(p[0] for p in waypoints) / len(waypoints)
         self.center_y = sum(p[1] for p in waypoints) / len(waypoints)
         
-        # calculate inner box this is the target area we try to stay within to drift
-        # inner box is 10m per side (20m total), scaled to degrees based on latitude
+        # Calculate inner box dimensions - this defines our drift radius
+        # Inner box is 10m per side (20m total), scaled to degrees based on latitude
         box_half_size = 10  # meters
-        dx = meter2degreeX(box_half_size, self.boat.refLat)
-        dy = meter2degreeY(box_half_size)
+        self.drift_radius_deg_x = meter2degreeX(box_half_size, self.boat.refLat)
+        self.drift_radius_deg_y = meter2degreeY(box_half_size)
         
-        # define inner box corners relative to center
+        # For visualization purposes, still maintain inner box corners
         self.inner_box = [
-            [self.center_x+dx, self.center_y+dy],   # top right
-            [self.center_x+dx, self.center_y-dy],   # bottom right
-            [self.center_x-dx, self.center_y-dy],   # bottom left
-            [self.center_x-dx, self.center_y+dy]    # top left
+            [self.center_x + self.drift_radius_deg_x, self.center_y + self.drift_radius_deg_y],
+            [self.center_x + self.drift_radius_deg_x, self.center_y - self.drift_radius_deg_y],
+            [self.center_x - self.drift_radius_deg_x, self.center_y - self.drift_radius_deg_y],
+            [self.center_x - self.drift_radius_deg_x, self.center_y + self.drift_radius_deg_y]
         ]
 
-        # calculate upwind point
+        # Calculate upwind point
         self.upwind_target = self.calculate_upwind_point()
         
         self.return_path = []  # path for returning to upwind point after drifting
@@ -92,20 +92,26 @@ class StationKeepingController:
 
         elif self.state == "DRIFTING":
             if not self.is_near_upwind_point() and not self.is_in_box(self.inner_box):
-                # drifted out of the interior bounding box, need to path back to upwind target
+                # Drifted too far, return to upwind point
                 self.state = "RETURNING"
                 self.return_path = self.controller.leg(current_pos, self.upwind_target)
                 self.controller.course = [current_pos] + self.return_path
                 self.target_path = self.controller.course[:]
                 self.current_path_index = 0
             else:
-                # still drifting - point into wind to minimize speed
-                wind_angle = self.boat.wind.angle.calc()
-                # calculate a point 20m upwind to aim toward
+                # Get wind angle and flip it 180° to point into wind
+                wind_angle = (self.boat.wind.angle.calc() + 180) % 360
+                
+                # Set drift target in direction facing into wind
                 drift_dx = math.cos(math.radians(wind_angle)) * meter2degreeX(20, self.boat.refLat)
                 drift_dy = math.sin(math.radians(wind_angle)) * meter2degreeY(20)
                 drift_target = [current_pos[0] + drift_dx, current_pos[1] + drift_dy]
                 self.controller.course = [current_pos, drift_target]
+
+                # tentative rudder updates:
+                self.controller.updateRudder(4, 0.5)  # More aggressive rudder control
+                self.controller.updateSails()
+                return 
 
         elif self.state == "RETURNING":
             if self.at_point(self.upwind_target):
@@ -130,60 +136,25 @@ class StationKeepingController:
         self.controller.updateRudder(2, 1)
         self.controller.updateSails()
 
-    def calculate_upwind_point(self): # this generally works i think, but it seems to break on corners for obvious reasons; will fix
+    def calculate_upwind_point(self):
         """
-        calculates the optimal point in the inner box to aim for - the furthest point
-        upwind; gives the most room to drift downwind while staying in the box
-        
-        the point is found by:
-            1. explain this when it works properly and doesnt break on liek corners and whatever
-        
-        Returns:
-            [x, y] coordinates of the target upwind point
+        Calculate upwind point opposite to wind direction.
+        For 90° wind (from north), this will be the top point of circle (270°).
         """
-        # wind angle 270 means wind blowing south, add 180 to get upwind direction
-        wind_angle = (self.boat.wind.angle.calc() + 180) % 360
+        # Add 180° to wind angle to get upwind direction
+        # wind_angle = (self.boat.wind.angle.calc() + 180) % 360
+
+        # don't add 180° to start at the bottom of the circle facing toward the wind
+        wind_angle = (self.boat.wind.angle.calc()) % 360
+
+
         wind_rad = math.radians(wind_angle)
         
-        # calculate unit vector in upwind direction
-        wind_dx = math.cos(wind_rad)
-        wind_dy = math.sin(wind_rad)
-
-        # get inner box bounds for edge calculations
-        min_x = min(p[0] for p in self.inner_box)
-        max_x = max(p[0] for p in self.inner_box)
-        min_y = min(p[1] for p in self.inner_box)
-        max_y = max(p[1] for p in self.inner_box)
-
-        # define box edges as line segments
-        edges = [
-            ((min_x, min_y), (max_x, min_y)),  # Bottom edge
-            ((max_x, min_y), (max_x, max_y)),  # Right edge
-            ((max_x, max_y), (min_x, max_y)),  # Top edge
-            ((min_x, max_y), (min_x, min_y))   # Left edge
-        ]
-
-        # find all intersections of upwind direction with box edges
-        intersections = []
-        for edge in edges:
-            intersection = self.line_intersection(
-                (self.center_x, self.center_y),
-                (self.center_x + wind_dx, self.center_y + wind_dy),
-                edge[0],
-                edge[1]
-            )
-            if intersection:
-                intersections.append(intersection)
-
-        # if no intersections found (shouldn't happen), use box center
-        if not intersections:
-            return [self.center_x, self.center_y]
-
-        # select intersection point furthest upwind
-        upwind_point = max(intersections, 
-            key=lambda p: (p[0] - self.center_x) * wind_dx + (p[1] - self.center_y) * wind_dy)
+        # Calculate point on circle in upwind direction
+        point_x = self.center_x + (self.drift_radius_deg_x * math.cos(wind_rad))
+        point_y = self.center_y + (self.drift_radius_deg_y * math.sin(wind_rad))
         
-        return list(upwind_point)
+        return [point_x, point_y]
 
     def is_in_box(self, box_points):
         """
@@ -199,20 +170,26 @@ class StationKeepingController:
         return (min(p[0] for p in box_points) <= x <= max(p[0] for p in box_points) and
                 min(p[1] for p in box_points) <= y <= max(p[1] for p in box_points))
 
-    def is_near_upwind_point(self, tolerance=3):
+    def is_near_upwind_point(self, tolerance=3): # 3 potentially?
         """
-        check if boat is within tolerance meters of upwind target point
-        used to determine if we've drifted too far
+        Check if boat is within tolerance meters of upwind target point.
+        Used to determine if we've drifted too far.
         
         Args:
             tolerance: distance in meters
         Returns:
             boolean indicating if boat is near target
         """
-        dx = self.upwind_target[0] - self.boat.position.xcomp()
-        dy = self.upwind_target[1] - self.boat.position.ycomp()
+        # Calculate distance from center
+        dx = (self.boat.position.xcomp() - self.center_x) / self.drift_radius_deg_x
+        dy = (self.boat.position.ycomp() - self.center_y) / self.drift_radius_deg_y
+        
+        # Normalize to account for lat/lon scaling
         dist = math.sqrt(dx*dx + dy*dy)
-        return degree2meter(dist) < tolerance
+        
+        # If distance from center is greater than 1 radius plus tolerance,
+        # we've drifted too far
+        return dist <= 1.0 + (tolerance / 10.0)  # Divide by 10 since radius is 10m
 
     def at_point(self, point, tolerance=2):
         """

@@ -91,7 +91,7 @@ class boatDisplayShell():
         ]
 
     def buoy(self, outer_points, inner_points=None):
-        """Draw course boundaries and buoys"""
+        """Draw course boundaries, buoys, and circular drift boundary"""
         # Draw outer box corners
         for p in outer_points:
             self.ax.add_patch(plt.Circle(p, meter2degreeY(0.4), color='orange'))
@@ -102,17 +102,27 @@ class boatDisplayShell():
             xs, ys = zip(*box_lines)
             self.ax.plot(xs, ys, 'orange')
             
-            # Draw inner box corners
+            # Draw inner box corners for reference
             for p in inner_points:
                 self.ax.add_patch(plt.Circle(p, meter2degreeY(0.2), color='green'))
             
             # Connect inner box points
             inner_lines = inner_points + [inner_points[0]]
             xs, ys = zip(*inner_lines)
-            self.ax.plot(xs, ys, 'green', linestyle='-', linewidth=2)
+            self.ax.plot(xs, ys, 'green', linestyle='--', linewidth=1)
             
-            # Initialize target point marker for station keeping
-            self.target_point = self.ax.add_patch(plt.Circle((0, 0), meter2degreeY(0.3), color='red'))
+            # Calculate center point
+            center_x = sum(p[0] for p in outer_points) / len(outer_points)
+            center_y = sum(p[1] for p in outer_points) / len(outer_points)
+            
+            # Draw circular boundary
+            radius_x = abs(inner_points[0][0] - center_x)  # Use inner box half-width as radius
+            radius_y = abs(inner_points[0][1] - center_y)  # Use inner box half-height as radius
+            circle = patches.Ellipse((center_x, center_y), 2 * radius_x, 2 * radius_y, color='pink', fill=False, linestyle='-',linewidth=2)
+            self.ax.add_patch(circle)
+            
+            # Initialize target point marker
+            self.target_point = self.ax.add_patch(plt.Circle((0, 0), meter2degreeY(0.3), color='red', zorder=5))  # Ensure it's drawn on top
             self.target_point.set_visible(False)
 
     def plotCourse(self,course):
