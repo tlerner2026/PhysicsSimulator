@@ -1,4 +1,4 @@
-# I'll start out with a simple test that aims to maintain a certain direction
+from station_keeping import StationKeepingController
 import math
 from Variables import *
 import numpy as np
@@ -23,68 +23,43 @@ def aoa(x):
     # return -0.5*x+44#4/9
 
 class Controler():
-    # def __init__(self,Boat, polars = "MarPol.pol"):   # Original Constructor
-        # self.boat = Boat
-        # self.polars = self.readPolar(polars)
-        # self.course = []
 
-    def __init__(self,Boat, polars = "test.pol"): # test.pol or MarPol.pol?
-        """
-        Intialize the boat, polars, and course of the boat.
-        """
-        self.boat = Boat # sets boat to object of boat class
-        self.polars = self.readPolar(polars) 
-        self.course = []
+    def __init__(self, Boat, polars="test.pol"):
+            self.boat = Boat
+            self.polars = self.readPolar(polars)
+            # Initialize course with current position
+            self.course = [[self.boat.position.xcomp(), self.boat.position.ycomp()],
+                        [self.boat.position.xcomp(), self.boat.position.ycomp()]]
+            self.station_keeper = None
+            self.control_mode = "normal"
 
-    def plan(self,plantype,waypoints):
-        """
-        Plan: plot an ideal course for the boat to take given the event type and buoy waypoints
-        """
-        # Type of self.boat.position is Vector.
-        course = [[self.boat.position.xcomp(),self.boat.position.ycomp()]]# Course will comprise of a sequence of checkpoints creating a good path
-        #type can either E(ndurance), S(tation Keeping), p(recision Navigation), w(eight/payload),
-        if plantype == "e":#endurance
-            # Format of waypoints is as such
-            # 4 Buoy in order of navigation
+    def plan(self, plantype, waypoints):
+        """Plan route based on event type"""
+        course = [[self.boat.position.xcomp(), self.boat.position.ycomp()]]
+        
+        if plantype == "e":  # Endurance
             n = 4
-            course.extend(self.leg([self.boat.position.xcomp(), self.boat.position.ycomp()], waypoints[0]))
-            # course is a list of xcomps and ycomps. This is computed using leg function
-            
-            #code to do one repetition of the course:
-            c2 = self.leg(waypoints[0],waypoints[1])
-            c2.extend(self.leg(waypoints[1],waypoints[2]))
-            c2.extend(self.leg(waypoints[2],waypoints[3]))
-            c2.extend(self.leg(waypoints[3],waypoints[0]))
-            #append for laps of the course to the main course list 
+            course.extend(self.leg(course[0], waypoints[0]))
+            c2 = self.leg(waypoints[0], waypoints[1])
+            c2.extend(self.leg(waypoints[1], waypoints[2]))
+            c2.extend(self.leg(waypoints[2], waypoints[3]))
+            c2.extend(self.leg(waypoints[3], waypoints[0]))
             course.extend(c2*n)
-            #remove the last step since you don't need to return to the start buoy, just the dock at the end
             course.pop()
-            #return to the dock: 
-            course.extend(self.leg(waypoints[3],[self.boat.position.xcomp(), self.boat.position.ycomp()]))
-        elif plantype == "s":#station keeping
-            """
-            deprecated
-            """
-            #4 Buoy in any order
-            # center
-            # course.extend(self.leg([self.boat.position.xcomp(), self.boat.position.ycomp()], [sum(p[0] for p in waypoints)/len(waypoints),sum(p[1] for p in waypoints)/len(waypoints)]))
-            last = [self.boat.position.xcomp(), self.boat.position.ycomp()]
-            for i in range(-1,4):
-                avg = [(waypoints[i%4][0]+waypoints[(i+1)%4][0])/2,(waypoints[i%4][1]+waypoints[(i+1)%4][1])/2]
-                angle = math.atan2((waypoints[i%4][1]-waypoints[(i+1)%4][1]),(waypoints[i%4][0]-waypoints[(i+1)%4][0]))+math.pi/2
-                l = math.sqrt((waypoints[(i+1)%4][1]-waypoints[(i+2)%4][1])**2+(waypoints[(i+1)%4][0]-waypoints[(i+2)%4][0])**2)/8
-                avg[0] -= math.cos(angle)*l
-                avg[1]-= math.sin(angle)*l
-                course.extend(self.leg(last, avg))
-                last = avg
-            # course.extend(self.leg(waypoints[1],waypoints[2]))
-            # course.extend(self.leg(waypoints[2],waypoints[3]))
-            # course.extend(self.leg(waypoints[3],waypoints[0]))
-        elif plantype == "p":#precision
-            # 4 Buoy in order of navigation'
-            course.extend(self.leg([self.boat.position.xcomp(), self.boat.position.ycomp()], waypoints[1]))
-            course.extend(self.leg(waypoints[1],waypoints[2]))
-            course.extend(self.leg(waypoints[2],[(waypoints[0][0]+waypoints[3][0])/2,(waypoints[0][1]+waypoints[3][1])/2]))
+            course.extend(self.leg(waypoints[3], course[0]))
+            
+        elif plantype == "s":  # Station keeping
+            self.control_mode = "station_keeping"
+            # Pass self as the controller instance
+            self.station_keeper = StationKeepingController(self.boat, waypoints, self)
+            return waypoints  # Return waypoints for visualization
+            
+        elif plantype == "p":  # Precision
+            course.extend(self.leg(course[0], waypoints[1]))
+            course.extend(self.leg(waypoints[1], waypoints[2]))
+            course.extend(self.leg(waypoints[2], [(waypoints[0][0]+waypoints[3][0])/2,
+                                                (waypoints[0][1]+waypoints[3][1])/2]))
+        
         return course
 
     def leg(self, start, stop):
@@ -193,12 +168,23 @@ class Controler():
         return rtn
 
 
-    def update(self,dt,rNoise= 2,stability=1): # less noise = faster rotation, stability tries to limit angular momentum
-        """
-        Updates the rudder and sail to maintain course stability, adjusted on noise and stability parameters
-        """
-        self.updateRudder(rNoise,stability)
-        self.updateSails()
+    def update(self, dt, rNoise=2, stability=1):
+        """Updates the rudder and sail to maintain course stability"""
+        if self.control_mode == "station_keeping" and self.station_keeper is not None:
+            # Let station keeper update its internal state and get next target
+            self.station_keeper.update(dt)
+            current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
+            
+            # Make sure we have a valid course to follow even during station keeping
+            if not self.course or len(self.course) < 2:
+                self.course = [current_pos, self.station_keeper.upwind_target]
+            
+            # IMPORTANT: These need to run in station keeping mode too!
+            self.updateRudder(rNoise, stability)  
+            self.updateSails()
+        else:
+            self.updateRudder(rNoise, stability)
+            self.updateSails()
 
     def isEnp(self,a1,a2): # Enp means something like "Enroulement de Point" (French for "gybe point")
         """
@@ -211,6 +197,7 @@ class Controler():
         if (a1 < wind and wind < a2) or (a2 < wind and wind < a1):
             return True
         return False
+
     def isVir(self,a1,a2): # Vir means something like "Virer" (French for "to tack")
         """
         Checks if the wind direction (reversed by 180 deg) lies between two angles to check if tacking is necessary
@@ -225,55 +212,58 @@ class Controler():
 
     def nextP(self):
         """
-        Determines when the boat has reached the next point on its course and checks if a tack or gybe is necessary based on wind direction
+        Determines when the boat has reached the next point on its course and checks if a tack or gybe is necessary
         """
-        r = 5# the distance from boat to waypoint to qualify as having reached it; 7 meter radius to play it safe
+        # Ensure course has at least two points
+        if not self.course or len(self.course) < 2:
+            current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
+            self.course = [current_pos, current_pos]
+            return 0
 
+        r = 5  # meters radius
+        
         dy = (self.boat.position.ycomp() - self.course[0][1])
         dx = (self.boat.position.xcomp() - self.course[0][0])
-        dist = degree2meter(math.sqrt(dx**2 + dy**2)) # Euclidean distance from boat to buoy
-        if dist < r: # if the actual distance between boat and buoy is less then r, the waypoint has been reached
-            a1 =Angle(1,round(math.atan2(dy,dx)*180/math.pi*10000)/10000) # angle between boat and current waypoint
-            a2 =Angle(1,round(math.atan2(self.course[1][1]- self.course[0][1],self.course[1][0]-self.course[0][0])*180/math.pi*10000)/10000) # angle between the current waypoint and next waypoint
-            self.course.pop(0) # removes current waypoint from course
-            if self.isEnp(a1,a2): # gybe necessary
+        dist = degree2meter(math.sqrt(dx**2 + dy**2))
+        
+        if dist < r:
+            a1 = Angle(1, round(math.atan2(dy, dx)*180/math.pi*10000)/10000)
+            a2 = Angle(1, round(math.atan2(self.course[1][1] - self.course[0][1],
+                                          self.course[1][0] - self.course[0][0])*180/math.pi*10000)/10000)
+            self.course.pop(0)
+            if len(self.course) == 1:  # Ensure we always have 2 points
+                self.course.append(self.course[0])
+                
+            if self.isEnp(a1, a2):  # gybe necessary
                 return 1
-            if self.isVir(a1,a2): # tacking necessary
+            if self.isVir(a1, a2):  # tacking necessary
                 return 2
-        return 0 # no gybe or tack necessary
+        return 0
 
-    def updateRudder(self,rNoise,stability):
+    def updateRudder(self, rNoise, stability):
         """
         Updates the rudder's angle in order to adjust the boat's heading
         """
-        self.nextP() # gybe/tack check
+        # Ensure course has at least two points
+        if not self.course or len(self.course) < 2:
+            current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
+            self.course = [current_pos, current_pos]
+            
+        self.nextP()  # gybe/tack check
 
-        if self.course[0][0] == -1: 
+        if self.course[0][0] == -1:
             # mise à la cape sous GV
-
-            """
-            Mise à la cape - heaving to
-            sous - under
-            GV - Grand Voile - mainsail
-
-            mise à la cape sous GV - heaving to under mainsail
-
-            Seems like this is where Henri intended to have certain conditions result in the boat stopping
-            movement, like what we planned to do in station keeping
-            """
             pass
-
-        dx = self.course[0][0]-self.boat.position.xcomp()
-        dy = self.course[0][1]-self.boat.position.ycomp()
-        target_angle = Angle(1,math.atan2(dy,dx)*180/math.pi) # angle between boat and waypoint; aka the target angle
-        #target_angle = angle
-        current_angle = self.boat.linearVelocity.angle # current angle of boats velocity
-        dtheta = (target_angle - current_angle).calc() # difference in current angle and target angle
-        rotV = self.boat.rotationalVelocity*180/math.pi *0.03 
-        # coeff = 1-(1/(dtheta.calc()*(1/rotV)+1))
-        dtheta = printA(dtheta)
-        coeff = 2/math.pi * math.atan((dtheta)/40 - rotV/stability) # adjust rudder angle based on dtheta, rotational velocity, and stability (stability is a smoothing factor)
-        self.boat.hulls[-1].angle = Angle(1,-10*coeff)*rNoise # set new rudder angle
+        else:
+            dx = self.course[0][0] - self.boat.position.xcomp()
+            dy = self.course[0][1] - self.boat.position.ycomp()
+            target_angle = Angle(1, math.atan2(dy, dx) * 180 / math.pi)
+            current_angle = self.boat.linearVelocity.angle
+            dtheta = (target_angle - current_angle).calc()
+            rotV = self.boat.rotationalVelocity * 180/math.pi * 0.03
+            dtheta = printA(dtheta)
+            coeff = 2/math.pi * math.atan((dtheta)/40 - rotV/stability)
+            self.boat.hulls[-1].angle = Angle(1, -10*coeff) * rNoise
     
     def updateRudderAngle(self,rNoise,stability,angle):
         """

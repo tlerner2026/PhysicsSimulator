@@ -30,6 +30,18 @@ class Variable:
         else:
             return self.display()
 
+    def meter2degreeX(meters, ref_lat):
+        """Convert meters to degrees of longitude at given latitude"""
+        return meters / (111.32 * 1000 * math.cos(ref_lat * (math.pi / 180)))
+
+    def meter2degreeY(meters):
+        """Convert meters to degrees of latitude"""
+        return meters / (111.32 * 1000)
+
+    def degree2meter(degrees):
+        """Convert degrees to meters (approximate)"""
+        return degrees * 111.32 * 1000
+
     def __str__(self):
         if self.type == 0:
             return "Data: "+ str(round(self.value*10000)/10000)

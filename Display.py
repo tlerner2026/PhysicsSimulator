@@ -12,6 +12,7 @@ from Variables import *
 from Boat import Boat
 from Control import Controler, printA
 from Compressor import *
+from station_keeping import StationKeepingController
 #Other
 import os
 import math
@@ -23,44 +24,102 @@ numCycle = 1
 data_dir = os.path.dirname(__file__) #abs dir
 
 def rm_ansi(line):
-    ansi_escape =re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
+    ansi_escape = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
     return ansi_escape.sub('', line)
 
 class boatDisplayShell():
     def __init__(self,Boat,ax,refLat):
         self.ax = ax
         self.boat = Boat
-        self.refLat =refLat
+        self.refLat = refLat
+        self.target_point = None
+        self.inner_waypoints = None
+        self.courseType = "s"  # Set course type
+
     def initAuto(self):
-        #This function needs to be ran after some other stuff
-        # self.waypoints = [ # precision navigation; original var name waypointsPr (no self.) but works as is 
-        #     [self.boat.position.xcomp()-meter2degreeX(1.5,self.refLat),self.boat.position.ycomp()],
-        #     [self.boat.position.xcomp()-meter2degreeX(1.5,self.refLat)-meter2degreeX(25,self.refLat),self.boat.position.ycomp()-meter2degreeY(25*math.sqrt(3))],
-        #     [self.boat.position.xcomp()+meter2degreeX(1.5,self.refLat)+meter2degreeX(25,self.refLat),self.boat.position.ycomp()-meter2degreeY(25*math.sqrt(3))],
-        #     [self.boat.position.xcomp()+meter2degreeX(1.5,self.refLat),self.boat.position.ycomp()],
-        # ]
-        self.waypoints = [# endurance
-             [self.boat.position.xcomp()+meter2degreeX(25,self.refLat),self.boat.position.ycomp()],
-             [self.boat.position.xcomp()+meter2degreeX(25,self.refLat),self.boat.position.ycomp()+meter2degreeY(15)],
-             [self.boat.position.xcomp()-meter2degreeX(25,self.refLat),self.boat.position.ycomp()+meter2degreeY(15)],
-             [self.boat.position.xcomp()-meter2degreeX(25,self.refLat),self.boat.position.ycomp()],
+        if self.courseType == "p":  # Precision navigation
+            self.waypoints = [
+                [self.boat.position.xcomp()-meter2degreeX(1.5,self.refLat),self.boat.position.ycomp()],
+                [self.boat.position.xcomp()-meter2degreeX(1.5,self.refLat)-meter2degreeX(25,self.refLat),self.boat.position.ycomp()-meter2degreeY(25*math.sqrt(3))],
+                [self.boat.position.xcomp()+meter2degreeX(1.5,self.refLat)+meter2degreeX(25,self.refLat),self.boat.position.ycomp()-meter2degreeY(25*math.sqrt(3))],
+                [self.boat.position.xcomp()+meter2degreeX(1.5,self.refLat),self.boat.position.ycomp()],
             ]
-        # self.waypoints = [# station keeping
-        #    [self.boat.position.xcomp()+meter2degreeX(20,self.refLat),self.boat.position.ycomp()],
-        #    [self.boat.position.xcomp()+meter2degreeX(20,self.refLat),self.boat.position.ycomp()+meter2degreeY(40)],
-        #    [self.boat.position.xcomp()-meter2degreeX(20,self.refLat),self.boat.position.ycomp()+meter2degreeY(40)],
-        #    [self.boat.position.xcomp()-meter2degreeX(20,self.refLat),self.boat.position.ycomp()],
-        #]
-        self.courseType = "e" # E(ndurance), S(tation Keeping), p(recision Navigation), w(eight/payload),
-        self.buoy(self.waypoints)
+        elif self.courseType == "e":  # Endurance
+            self.waypoints = [
+                [self.boat.position.xcomp()+meter2degreeX(25,self.refLat),self.boat.position.ycomp()],
+                [self.boat.position.xcomp()+meter2degreeX(25,self.refLat),self.boat.position.ycomp()+meter2degreeY(15)],
+                [self.boat.position.xcomp()-meter2degreeX(25,self.refLat),self.boat.position.ycomp()+meter2degreeY(15)],
+                [self.boat.position.xcomp()-meter2degreeX(25,self.refLat),self.boat.position.ycomp()],
+            ]
+        elif self.courseType == "s":  # Station keeping
+            # Station keeping outer box
+            self.waypoints = [
+                [self.boat.position.xcomp()+meter2degreeX(20,self.refLat), self.boat.position.ycomp()+meter2degreeY(20)],
+                [self.boat.position.xcomp()+meter2degreeX(20,self.refLat), self.boat.position.ycomp()-meter2degreeY(20)],
+                [self.boat.position.xcomp()-meter2degreeX(20,self.refLat), self.boat.position.ycomp()-meter2degreeY(20)],
+                [self.boat.position.xcomp()-meter2degreeX(20,self.refLat), self.boat.position.ycomp()+meter2degreeY(20)],
+            ]
+
+            # Calculate inner box for station keeping
+            center_x = sum(p[0] for p in self.waypoints) / len(self.waypoints)
+            center_y = sum(p[1] for p in self.waypoints) / len(self.waypoints)
+            self.inner_waypoints = [
+                [center_x+meter2degreeX(10.0,self.refLat), center_y+meter2degreeY(10.0)],
+                [center_x+meter2degreeX(10.0,self.refLat), center_y-meter2degreeY(10.0)],
+                [center_x-meter2degreeX(10.0,self.refLat), center_y-meter2degreeY(10.0)],
+                [center_x-meter2degreeX(10.0,self.refLat), center_y+meter2degreeY(10.0)],
+            ]
+
         self.autopilot = Controler(self.boat)
-    def buoy(self,points):
-        for p in points:
+        
+        # Call buoy with appropriate arguments based on course type
+        if self.courseType == "s":
+            self.buoy(self.waypoints, self.inner_waypoints)
+        else:
+            self.buoy(self.waypoints)
+
+        # Calculate center point for station keeping
+        center_x = sum(p[0] for p in self.waypoints) / len(self.waypoints)
+        center_y = sum(p[1] for p in self.waypoints) / len(self.waypoints)
+
+        # Inner box waypoints - 10m square for station keeping
+        self.inner_waypoints = [
+            [center_x+meter2degreeX(10.0,self.refLat), center_y+meter2degreeY(10.0)],
+            [center_x+meter2degreeX(10.0,self.refLat), center_y-meter2degreeY(10.0)],
+            [center_x-meter2degreeX(10.0,self.refLat), center_y-meter2degreeY(10.0)],
+            [center_x-meter2degreeX(10.0,self.refLat), center_y+meter2degreeY(10.0)],
+        ]
+
+    def buoy(self, outer_points, inner_points=None):
+        """Draw course boundaries and buoys"""
+        # Draw outer box corners
+        for p in outer_points:
             self.ax.add_patch(plt.Circle(p, meter2degreeY(0.4), color='orange'))
+        
+        if inner_points:  # Station keeping mode
+            # Connect outer box points
+            box_lines = outer_points + [outer_points[0]]
+            xs, ys = zip(*box_lines)
+            self.ax.plot(xs, ys, 'orange')
+            
+            # Draw inner box corners
+            for p in inner_points:
+                self.ax.add_patch(plt.Circle(p, meter2degreeY(0.2), color='green'))
+            
+            # Connect inner box points
+            inner_lines = inner_points + [inner_points[0]]
+            xs, ys = zip(*inner_lines)
+            self.ax.plot(xs, ys, 'green', linestyle='-', linewidth=2)
+            
+            # Initialize target point marker for station keeping
+            self.target_point = self.ax.add_patch(plt.Circle((0, 0), meter2degreeY(0.3), color='red'))
+            self.target_point.set_visible(False)
+
     def plotCourse(self,course):
         xs = [x[0] for x in course]
         ys = [x[1] for x in course]
         self.ax.plot(xs,ys, color = 'red')
+
     def createBoat(self):
         self.hullDisplay = []
         self.sailDisplay = []
@@ -70,7 +129,6 @@ class boatDisplayShell():
             verts = [(meter2degreeX(p[0]*h.size+ h.position.xcomp(),self.refLat)+self.boat.position.xcomp(),meter2degreeY(p[1]*h.size+h.position.ycomp())+self.boat.position.ycomp()) for p in h.polygon]
             polygon = patches.Polygon(verts, color="gray") 
 
-            #NOTE YOU"LL NEED TO ADD A REAL CENTER OF MASS FUNCTIONALITY
             r = transforms.Affine2D().rotate_deg_around(self.boat.position.xcomp(),self.boat.position.ycomp(),(self.boat.angle+h.angle).calc())
 
             polygon.set_transform(r+ self.ax.transData)
@@ -82,7 +140,6 @@ class boatDisplayShell():
             self.forceDisplay.append(self.ax.plot([0,0],[0,0], color = 'green')[0])
 
         for s in self.boat.sails:
-            #x1, y1 are the points on the mast
             x1 = self.boat.position.xcomp()+meter2degreeX(math.cos((self.boat.angle.calc()+s.position.angle.calc()-90)*math.pi/180)*s.position.norm,self.refLat)
             y1 = self.boat.position.ycomp()+meter2degreeY(math.sin((self.boat.angle.calc()+s.position.angle.calc()-90)*math.pi/180)*s.position.norm)
             x2 = x1+meter2degreeX(math.cos((180+self.boat.angle.calc()+s.angle.calc())*math.pi/180)*s.size,self.refLat)
@@ -99,12 +156,28 @@ class boatDisplayShell():
         #Boat velocity
         self.forceDisplay.append(self.ax.plot([0,0],[0,0], color = 'magenta')[0])
 
-    def update(self, auto,showForces):
+    def update(self, auto, showForces):
         for i in range(numCycle):
-            self.boat.update(1/fps)#*4
+            self.boat.update(1/fps)
             if auto:
                 self.autopilot.update(1/fps)
+
         forceScale = 0.01
+
+        # Update target point visualization if in station keeping mode
+        if (auto and 
+            hasattr(self.autopilot, 'control_mode') and 
+            self.autopilot.control_mode == "station_keeping" and 
+            self.autopilot.station_keeper is not None and  # Add explicit check
+            hasattr(self.autopilot.station_keeper, 'upwind_target')):  # Check for attribute
+            
+            target = self.autopilot.station_keeper.upwind_target
+            if self.target_point:  # Check if target point exists
+                self.target_point.center = (target[0], target[1])
+                self.target_point.set_visible(True)
+        elif hasattr(self.target_point, 'set_visible'):
+            self.target_point.set_visible(False)
+
         #hulls
         for i, h in enumerate(self.hullDisplay):
             hull = copy.deepcopy(self.boat.hulls[i])
@@ -113,7 +186,7 @@ class boatDisplayShell():
             cx = self.boat.position.xcomp() + meter2degreeX(hull.position.xcomp(),self.refLat)
             cy = self.boat.position.ycomp() + meter2degreeY(hull.position.ycomp())
 
-            r = transforms.Affine2D().rotate_deg_around(cx,cy,(self.boat.angle+self.boat.hulls[i].angle).calc()) # NOTE: This is not a mistake
+            r = transforms.Affine2D().rotate_deg_around(cx,cy,(self.boat.angle+self.boat.hulls[i].angle).calc())
             sum = r + self.ax.transData
 
             if showForces:
@@ -128,11 +201,22 @@ class boatDisplayShell():
             else:
                 self.forceDisplay[2*i].set_linestyle("None")
                 self.forceDisplay[2*i+1].set_linestyle("None")
-            #tranforms
+            
             verts = [(meter2degreeX(p[0]*self.boat.hulls[i].size,self.refLat)+cx,meter2degreeY(p[1]*self.boat.hulls[i].size)+cy) for p in self.boat.hulls[i].polygon]
             self.hullDisplay[i].set_xy(verts)
-
             self.hullDisplay[i].set_transform(sum)
+
+            # Only try to update target point if we're in station keeping mode AND all required objects exist
+            if (auto and 
+                hasattr(self.autopilot, 'control_mode') and 
+                self.autopilot.control_mode == "station_keeping" and 
+                self.autopilot.station_keeper is not None and
+                hasattr(self.target_point, 'center')):
+                target = self.autopilot.station_keeper.upwind_target
+                self.target_point.center = (target[0], target[1])
+                self.target_point.set_visible(True)
+            elif hasattr(self.target_point, 'set_visible'):
+                self.target_point.set_visible(False)
 
         #sails
         for i, s in enumerate(self.sailDisplay):
@@ -143,8 +227,7 @@ class boatDisplayShell():
             
             CEx = x1+meter2degreeX(math.cos((180+self.boat.angle.calc()+self.boat.sails[i].angle.calc())*math.pi/180)*self.boat.sails[i].size/2,self.refLat)
             CEy = y1+meter2degreeY(math.sin((180+self.boat.angle.calc()+self.boat.sails[i].angle.calc())*math.pi/180)*self.boat.sails[i].size/2)
-            # CEx = x1
-            # CEy = y1
+
             if showForces:
                 #lift
                 self.forceDisplay[2*i+len(self.hullDisplay)*2].set_linestyle("solid")
@@ -165,6 +248,7 @@ class boatDisplayShell():
                 pos.angle += self.boat.angle - Angle(1,90)
                 pos += self.boat.position
                 self.winches[idx].set(center =(pos.xcomp(),pos.ycomp()))
+
         if showForces:
             #boat net forces
             f = self.boat.forces["sails"]+self.boat.forces["hulls"]
@@ -177,8 +261,6 @@ class boatDisplayShell():
             self.forceDisplay[-2].set_linestyle("None")
             self.forceDisplay[-1].set_linestyle("None")
 
-
-
 class display:
     def __init__(self,location,boat):
         self.f, self.axes = plt.subplot_mosaic('AAABD;AAACC', figsize=(12, 5))
@@ -189,7 +271,7 @@ class display:
         self.time = 0
 
         self.boat = boatDisplayShell(boat,self.axes['A'],boat.position.ycomp())
-        self.map(location) # creates map and sets units
+        self.map(location)
         self.boat.initAuto()
         self.boat.createBoat()
 
@@ -209,7 +291,10 @@ class display:
         self.text.append(self.axes['C'].text(0, 0.3, "Sail lift F:0", fontsize=9))
         self.text.append(self.axes['C'].text(0, 0.2, "Sail Drag F:0", fontsize=9))
         self.text.append(self.axes['C'].text(0, 0.1, "Boat Position V:0", fontsize=9))
-        self.text.append(self.axes['C'].text(0, 0, "Time (s):0", fontsize=9))
+        self.text.append(self.axes['C'].text(0, 0.0, "Time (s):0", fontsize=9))
+        # Add station keeping state text element
+        self.text.append(self.axes['C'].text(0, -0.1, "Station Keeping State: Inactive", fontsize=9))
+        
         self.displayValues()
 
         self.axes['D'].set_title('Boat Controls')
@@ -218,7 +303,6 @@ class display:
 
         #credits
         plt.figtext(0, 0.01, 'Map: © OpenStreetMap contributors', fontsize = 10)
-
 
     def bUpdate(self,v):
         self.boat.boat.hulls[-1].angle = Angle(1,self.bRot.val)
@@ -239,7 +323,7 @@ class display:
 
     def boatControls(self):
         bax = plt.axes([0, 0, 1, 1])
-        bforcesInp = InsetPosition(self.axes['D'], [0.6, 0.9, 0.9, 0.1]) #x,y,w,h
+        bforcesInp = InsetPosition(self.axes['D'], [0.6, 0.9, 0.9, 0.1])
         bax.set_axes_locator(bforcesInp)
         self.bRot = Slider(
             ax=bax,
@@ -249,8 +333,9 @@ class display:
             valinit=self.boat.boat.angle.calc(),
         )
         self.bRot.on_changed(self.bUpdate)
+        
         sax = plt.axes([0, 0, 1, 1])
-        sforcesInp = InsetPosition(self.axes['D'], [0.45, 0.75, 0.9, 0.1]) #x,y,w,h
+        sforcesInp = InsetPosition(self.axes['D'], [0.45, 0.75, 0.9, 0.1])
         sax.set_axes_locator(sforcesInp)
         self.sRot = Slider(
             ax=sax,
@@ -262,7 +347,7 @@ class display:
         self.sRot.on_changed(self.sUpdate)
 
         wax = plt.axes([0, 0, 1, 1])
-        wforcesInp = InsetPosition(self.axes['D'], [0.45, 0.60, 0.9, 0.1]) #x,y,w,h
+        wforcesInp = InsetPosition(self.axes['D'], [0.45, 0.60, 0.9, 0.1])
         wax.set_axes_locator(wforcesInp)
         self.wRot = Slider(
             ax=wax,
@@ -274,7 +359,7 @@ class display:
         self.wRot.on_changed(self.wUpdate)
 
         spax = plt.axes([0, 0, 1, 1])
-        spforcesInp = InsetPosition(self.axes['D'], [0.45, 0.45, 0.9, 0.1]) #x,y,w,h
+        spforcesInp = InsetPosition(self.axes['D'], [0.45, 0.45, 0.9, 0.1])
         spax.set_axes_locator(spforcesInp)
         self.spRot = Slider(
             ax=spax,
@@ -284,8 +369,6 @@ class display:
             valinit=1,
         )
         self.spRot.on_changed(self.spUpdate)
-
-
 
     def pauseT(self,t):
         self.pause = not self.pause
@@ -300,41 +383,59 @@ class display:
             self.zoomButton.label.set_text('Stop Tracking')
         else:
             self.zoomButton.label.set_text('Track Boat')
+            
     def autoF(self,t):
         self.auto = not self.auto
         if self.auto:
-            self.boat.autopilot.course = self.boat.autopilot.plan(self.boat.courseType,self.boat.waypoints)
-            self.boat.plotCourse(self.boat.autopilot.course)
+            # Initialize the course
+            self.boat.autopilot.course = self.boat.autopilot.plan(self.boat.courseType, self.boat.waypoints)
+            
+            # For station keeping, make sure the controller is initialized
+            if self.boat.courseType == "s":
+                if not hasattr(self.boat.autopilot, 'station_keeper'):
+                    # Pass the controller as the third argument
+                    self.boat.autopilot.station_keeper = StationKeepingController(
+                        self.boat, 
+                        self.boat.waypoints,
+                        self.boat.autopilot  # Pass the controller instance
+                    )
+                    self.boat.autopilot.control_mode = "station_keeping"
+            else:
+                # Only plot initial course for non-station-keeping modes
+                self.boat.plotCourse(self.boat.autopilot.course)
+                
             self.autoButton.label.set_text('Auto Pilot: ON')
         else:
             self.autoButton.label.set_text('Auto Pilot: OFF')
+            
     def forceS(self,t):
         self.forceShow = not self.forceShow
         if self.forceShow:
             self.forceButton.label.set_text('Hide Forces')
         else:
             self.forceButton.label.set_text('Show Forces')
+            
     def displaySettings(self):
         F_button_ax = plt.axes([0, 0, 1, 1])
-        forcesInp = InsetPosition(self.axes['B'], [0, 0.9, 0.9, 0.1]) #x,y,w,h
+        forcesInp = InsetPosition(self.axes['B'], [0, 0.9, 0.9, 0.1])
         F_button_ax.set_axes_locator(forcesInp)
         self.forceButton = Button(F_button_ax, 'Hide Forces')
         self.forceButton.on_clicked(self.forceS)
 
         P_button_ax = plt.axes([0, 0, 1, 1])
-        pauseInp = InsetPosition(self.axes['B'], [0, 0.78, 0.9, 0.1]) #x,y,w,h
+        pauseInp = InsetPosition(self.axes['B'], [0, 0.78, 0.9, 0.1])
         P_button_ax.set_axes_locator(pauseInp)
         self.pauseButton = Button(P_button_ax, 'Pause Animation')
         self.pauseButton.on_clicked(self.pauseT)
 
         Z_button_ax = plt.axes([0, 0, 1, 1])
-        zoomInp = InsetPosition(self.axes['B'], [0, 0.66, 0.9, 0.1]) #x,y,w,h
+        zoomInp = InsetPosition(self.axes['B'], [0, 0.66, 0.9, 0.1])
         Z_button_ax.set_axes_locator(zoomInp)
         self.zoomButton = Button(Z_button_ax, 'Track Boat')
         self.zoomButton.on_clicked(self.trackZ)
 
         A_button_ax = plt.axes([0, 0, 1, 1])
-        autoInp = InsetPosition(self.axes['B'], [0, 0.54, 0.9, 0.1]) #x,y,w,h
+        autoInp = InsetPosition(self.axes['B'], [0, 0.54, 0.9, 0.1])
         A_button_ax.set_axes_locator(autoInp)
         self.autoButton = Button(A_button_ax, 'Auto Pilot: OFF')
         self.autoButton.on_clicked(self.autoF)
@@ -356,8 +457,16 @@ class display:
         xs = str(self.boat.boat.position.xcomp())
         ys = str(self.boat.boat.position.ycomp())
         self.text[8].set_text("Boat Position V:" + rm_ansi("("+xs[0:min(10,len(xs))]+", "+ys[0:min(10,len(ys))]+")"))
-
         self.text[9].set_text("Time (s):"+str(self.time))
+
+        # Update station keeping state if active
+        if (hasattr(self.boat.autopilot, 'control_mode') and 
+            self.boat.autopilot.control_mode == "station_keeping" and 
+            self.boat.autopilot.station_keeper is not None):
+            state = self.boat.autopilot.station_keeper.state
+            self.text[10].set_text(f"Station Keeping State: {state}")
+        else:
+            self.text[10].set_text("Station Keeping State: Inactive")
 
     def map(self,location):
         cords = regionPolygon(location)
@@ -367,8 +476,7 @@ class display:
         mx = min(x)
         my = min(y)
 
-        #the cordinates are typically in degrees
-        x = [(i-mx) for i in x] # normalisation
+        x = [(i-mx) for i in x]
         y = [(i-my) for i in y]
 
         bx = (self.boat.boat.position.xcomp()-mx)
@@ -382,8 +490,9 @@ class display:
     
     def updateCycle(self,f):
         if not self.pause:
+            # Update boat state
             self.boat.update(self.auto,self.forceShow)
-            self.time +=1/fps * numCycle
+            self.time += 1/fps * numCycle
             self.bRot.set_val(printA(self.boat.boat.hulls[-1].angle.calc()))
 
             if len(self.boat.boat.sails[0].winches) == 0:
@@ -391,18 +500,40 @@ class display:
             else:
                 self.sRot.set_val(printA(self.boat.boat.sails[0].winches[0].rot.calc()))
             
+            # If station keeping is active, handle path visualization
+            if (self.auto and 
+                hasattr(self.boat.autopilot, 'control_mode') and 
+                self.boat.autopilot.control_mode == "station_keeping" and
+                self.boat.autopilot.station_keeper is not None):
+                
+                station_keeper = self.boat.autopilot.station_keeper
+                
+                # Clear any existing course lines (only the red ones)
+                for line in self.axes['A'].get_lines():
+                    if line.get_color() == 'red':
+                        line.remove()
+                
+                # Only draw path if we're not in DRIFTING state
+                if (hasattr(station_keeper, 'state') and 
+                    station_keeper.state != "DRIFTING" and
+                    hasattr(station_keeper, 'target_path') and 
+                    station_keeper.target_path):
+                    # Draw new path if we have one
+                    path_x = [p[0] for p in station_keeper.target_path]
+                    path_y = [p[1] for p in station_keeper.target_path]
+                    self.axes['A'].plot(path_x, path_y, 'red', linewidth=1.5)
+            
             if self.track:
                 dx = self.axes['A'].get_xlim()[1]-self.axes['A'].get_xlim()[0]
                 dy = self.axes['A'].get_ylim()[1]-self.axes['A'].get_ylim()[0]
-                dm = max(dx,dy)#anti-distortion
+                dm = max(dx,dy)
                 self.axes['A'].set_xlim(self.boat.boat.position.xcomp()-dm/2,self.boat.boat.position.xcomp()+dm/2)
                 self.axes['A'].set_ylim(self.boat.boat.position.ycomp()-dm/2,self.boat.boat.position.ycomp()+dm/2)
             self.displayValues()
 
     def runAnimation(self):
-        anim = FuncAnimation(self.f, self.updateCycle, interval=1000/fps,cache_frame_data=False)#,blit = True)
+        anim = FuncAnimation(self.f, self.updateCycle, interval=1000/fps,cache_frame_data=False)
         plt.show()
-        #anim.save('test.gif')
 
 if __name__ == "__main__":
     lakeAttitash = "Lake Attitash, Amesbury, Essex County, Massachusetts, USA"
@@ -416,19 +547,17 @@ if __name__ == "__main__":
     ama2 = foil(os.path.join(data_dir, "naca0009-R0.69e6-F180.csv"), 997.77, 0.1768, position=Vector(Angle(1,-90), 0.6), rotInertia=3.939, size=1.5)
     rudder = foil(os.path.join(data_dir, "naca0015-R7e7-F180.csv"), 997.77, 0.0588, position=Vector(Angle(1,180), vaka.size/2), rotInertia=0.01, size=0.3)
 
-    offset = 0.45  # 15cm
-    BabordWinch = Winch(Vector(Angle(1,180), 0.6) + Vector(Angle(1,270), offset), 30, 0.025)  # 2.5cm radius
-    TribordWinch = Winch(Vector(Angle(1,0), 0.6) + Vector(Angle(1,270), offset), 30, 0.025)  # 2.5cm radius
+    offset = 0.45
+    BabordWinch = Winch(Vector(Angle(1,180), 0.6) + Vector(Angle(1,270), offset), 30, 0.025)
+    TribordWinch = Winch(Vector(Angle(1,0), 0.6) + Vector(Angle(1,270), offset), 30, 0.025)
 
-    # sail = foil(os.path.join(data_dir, "mainSailCoeffs.cvs"), 1.204, 5, position=Vector(Angle(1,90), 0.4), rotInertia=11, size=0.7, winches=[BabordWinch, TribordWinch])
     sail = foil(os.path.join(data_dir, "MarchajSail.cvs"), 1.204, 2.03, position=Vector(Angle(1,90), 0.4), rotInertia=0, size=0.7, winches=[BabordWinch, TribordWinch])
-
 
     sail.setSailRotation(Angle(1,0))
     wind = Vector(Angle(1,270),5.3) # Going South wind, 7 kn
     xpos = -122.09064
     ypos = 37.431749
-    boat = Boat([ama1,vaka,ama2,rudder],[sail],wind,mass =15,refLat=ypos)
+    boat = Boat([ama1,vaka,ama2,rudder],[sail],wind,mass=15,refLat=ypos)
     boat.angle = Angle(1,-93)
     sail.angle = Angle(1,75)
     sail.setSailRotation(sail.angle)
