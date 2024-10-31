@@ -38,10 +38,10 @@
 * ## Angles
     * Always in degrees unless there is a good reason
     * Pyglet angles (do not loop, can be negative)
-       * Wind of 90 = Wind blowing North
-       * Wind of 270 = Wind blowing South
-       * Wind of 0 = Wind blowing East
-       * Wind of 180 = Wind blowing West
+       * Wind of 90 = Wind from North -> South
+       * Wind of 270 = Wind blowing from South -> East
+       * Wind of 0 = Wind blowing from East -> West
+       * Wind of 180 = Wind blowing from West -> East
     ```
            | 90
          0--- 180 
