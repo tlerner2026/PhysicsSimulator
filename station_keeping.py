@@ -103,13 +103,16 @@ class StationKeepingController:
                 wind_angle = (self.boat.wind.angle.calc() + 180) % 360
                 
                 # Set drift target in direction facing into wind
+                # for some reason here, the simulated boat has a tendency to drift to the right of the wind
+                    # probably some logic with the simulation, or with the inate order that leg puts vectors k and j in
+                    # should be irrelevant in practice because the boat makes a new path every time it drifts out of bounds
                 drift_dx = math.cos(math.radians(wind_angle)) * meter2degreeX(20, self.boat.refLat)
                 drift_dy = math.sin(math.radians(wind_angle)) * meter2degreeY(20)
                 drift_target = [current_pos[0] + drift_dx, current_pos[1] + drift_dy]
                 self.controller.course = [current_pos, drift_target]
 
                 # tentative rudder updates:
-                self.controller.updateRudder(4, 0.5)  # More aggressive rudder control
+                self.controller.updateRudder(2, 1)  # 2, 1 - default
                 self.controller.updateSails()
                 return 
 

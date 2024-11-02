@@ -38,13 +38,11 @@
 * ## Angles
     * Always in degrees unless there is a good reason
     * Pyglet angles (do not loop, can be negative)
-       * Wind of 90 = Wind from North -> South
-       * Wind of 270 = Wind blowing from South -> East
-       * Wind of 0 = Wind blowing from East -> West
-       * Wind of 180 = Wind blowing from West -> East
+        * The angle in the simulator is the angle the wind is coming from, 
+            * e.g. Wind angle = 0 degrees, means wind is blowing from East -> West
     ```
-           | 90
-         0--- 180 
+           |90
+         0---180 
            |270
     ```
     * data angles (no negatives, 0-180)
