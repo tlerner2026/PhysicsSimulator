@@ -260,7 +260,10 @@ class Controler():
             target_angle = Angle(1, math.atan2(dy, dx) * 180 / math.pi)
             current_angle = self.boat.linearVelocity.angle
             dtheta = (target_angle - current_angle).calc()
-            rotV = self.boat.rotationalVelocity * 180/math.pi * 0.03
+
+            # see the updateRudderAngle function for comments on the logic here
+            rotV = self.boat.rotationalVelocity * 180/math.pi * 0.03 
+
             dtheta = printA(dtheta)
             coeff = 2/math.pi * math.atan((dtheta)/40 - rotV/stability)
             self.boat.hulls[-1].angle = Angle(1, -10*coeff) * rNoise
@@ -271,24 +274,42 @@ class Controler():
         """
         target_angle = angle
         current_angle = self.boat.linearVelocity.angle
-        dtheta = (target_angle - current_angle).calc()
-        rotV = self.boat.rotationalVelocity*180/math.pi *0.03
+        dtheta = (target_angle - current_angle).calc() # difference in current angle and target angle
+
+        rotV = self.boat.rotationalVelocity*180/math.pi *0.03 # rotational velocity * (180/pi) converts from radians to degrees. *0.03 is for time step conversion.
+
         # coeff = 1-(1/(dtheta.calc()*(1/rotV)+1))
         dtheta = printA(dtheta)
-        coeff = 2/math.pi * math.atan((dtheta)/40 - rotV/stability)
-        self.boat.hulls[-1].angle = Angle(1,-10*coeff)*rNoise
+
+        """
+        step by step logic for coeff
+        1. (dtheta)/40 -> Normalized heading error; prevents large heading errors from causing excessively large control inputs
+        2. rotV/stability -> Normalized rotational velocity
+        3. (Normalized heading error - Normalized rotation velocity) -> combines desired change and current rotational velocity to create a single value for the control law
+        4. arctan(control law value) -> smoothly bounded output val
+        5. (output val) * (2/pi) -> normalizes range from +/-(pi/2) to a more convient control range +/-1
+        """
+        coeff = 2/math.pi * math.atan((dtheta)/40 - rotV/stability) # determines how aggressively the rudder should be adjusted to steer the boat towards the target angle
+
+        self.boat.hulls[-1].angle = Angle(1,-10*coeff)*rNoise  # * -10 converts the coefficent into a rudder angle adjustment within the effective range for the rudder's physical constraints
     
     def updateSails(self):
         """
         Updates the angle of the boat's sails based on the apparent wind direction
+            * The active code simplifies the calculation by directly adjusting wind angle
+            * The commented out code tries to perform a more percise calculation:
+                * Should be theoretically more optimal but not necessary
         """
         #angle = Angle.norm(self.boat.angle + Angle(1,90)-self.boat.globalAparentWind().angle+Angle(1,180)).calc()
         wind = self.boat.globalAparentWind().angle
         wind += Angle(1,180)
         wind = wind - self.boat.angle
+
+
         # # angle = Angle(1,math.acos((wind * Vector(self.boat.angle,1))/wind.norm)*180/math.pi)
         # # if Angle.norm(wind.angle+Angle(1,180)).calc() > angle.calc():
         # #     angle = Angle(1,180) -angle
         # # angle = angle.calc()
         # self.boat.sails[0].setSailRotation(Angle(1,aoa(angle)))
-        self.boat.sails[0].setSailRotation(Angle(1,aoa(wind.calc())))
+
+        self.boat.sails[0].setSailRotation(Angle(1,aoa(wind.calc()))) # adjusts the sails to point at the near optimal angle

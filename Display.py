@@ -502,7 +502,7 @@ class display:
         if not self.pause:
             # Update boat state
             self.boat.update(self.auto,self.forceShow)
-            self.time += 1/fps * numCycle
+            self.time += 1/fps * numCycle # This is the definition for Henri time
             self.bRot.set_val(printA(self.boat.boat.hulls[-1].angle.calc()))
 
             if len(self.boat.boat.sails[0].winches) == 0:
