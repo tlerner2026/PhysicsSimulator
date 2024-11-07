@@ -25,42 +25,136 @@ def aoa(x):
 class Controler():
 
     def __init__(self, Boat, polars="test.pol"):
-            self.boat = Boat
-            self.polars = self.readPolar(polars)
-            # Initialize course with current position
-            self.course = [[self.boat.position.xcomp(), self.boat.position.ycomp()],
-                        [self.boat.position.xcomp(), self.boat.position.ycomp()]]
-            self.station_keeper = None
-            self.control_mode = "normal"
+        self.boat = Boat
+        self.polars = self.readPolar(polars)
+        self.waypoints = []  # original waypoints from course
+        self.active_course = []  # current active leg pairs being followed
+        self.wind_change_points = []  # track points added due to wind changes
+        self.current_target_idx = 0  # index of next target in original waypoints
+        self.initial_wind_angle = self.boat.wind.angle.calc()
+        self.control_mode = "normal"
+        self.courseType = None  # store course type
+        self.station_keeper = None  # initialize station keeper as None
+        
+    
+    def recalculate_path(self):
+        """
+        Recalculate path including the next waypoint we were heading towards
+        """
+        current_wind = self.boat.wind.angle.calc()
+        wind_diff = abs(printA(current_wind - self.initial_wind_angle))
+        
+        if wind_diff > 5 and self.control_mode != "station_keeping":
+            # get current position
+            current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
+            
+            # find which waypoint we were heading to
+            target_idx = 0
+            min_dist = float('inf')
+            current_course_idx = 0
+            
+            # first find where we are in the current course
+            for i, point in enumerate(self.course):
+                dist = math.sqrt((point[0] - current_pos[0])**2 + (point[1] - current_pos[1])**2)
+                if dist < min_dist:
+                    min_dist = dist
+                    current_course_idx = i
+            
+            # then find the next waypoint we were heading to
+            for i, waypoint in enumerate(self.waypoints):
+                # check if this waypoint appears in the course after our current position
+                for point in self.course[current_course_idx:]:
+                    if abs(point[0] - waypoint[0]) < 1e-6 and abs(point[1] - waypoint[1]) < 1e-6:
+                        target_idx = i
+                        break
+                if target_idx == i:  # if we found our target, stop searching
+                    break
+            
+            # create new course starting from current position
+            new_course = [current_pos]
+            
+            # calculate path to the next waypoint
+            next_leg = self.leg(current_pos, self.waypoints[target_idx])
+            new_course.extend(next_leg)
+            
+            # then continue with remaining waypoints
+            for i in range(target_idx + 1, len(self.waypoints)):
+                next_leg = self.leg(new_course[-1], self.waypoints[i])
+                new_course.extend(next_leg)
+            
+            # replace entire course with new calculation
+            self.course = new_course
+            self.initial_wind_angle = current_wind
+            return True
+                
+        return False
 
     def plan(self, plantype, waypoints):
-        """Plan route based on event type"""
-        course = [[self.boat.position.xcomp(), self.boat.position.ycomp()]]
+        """Initial course planning"""
+        self.waypoints = waypoints  # store original waypoints
+        self.current_target_idx = 0
+        self.wind_change_points = []
+        self.courseType = plantype  # store course type for reference
         
-        if plantype == "e":  # Endurance
-            n = 4
-            course.extend(self.leg(course[0], waypoints[0]))
-            c2 = self.leg(waypoints[0], waypoints[1])
-            c2.extend(self.leg(waypoints[1], waypoints[2]))
-            c2.extend(self.leg(waypoints[2], waypoints[3]))
-            c2.extend(self.leg(waypoints[3], waypoints[0]))
-            course.extend(c2*n)
-            course.pop()
-            course.extend(self.leg(waypoints[3], course[0]))
+        if plantype == "e":  # endurance
+            self.control_mode = "normal"
+            self.station_keeper = None
+            # calculate first two legs only
+            self.calculate_next_legs()
+            return self.active_course
             
-        elif plantype == "s":  # Station keeping
+        elif plantype == "s":  # station keeping
             self.control_mode = "station_keeping"
-            # Pass self as the controller instance
-            self.station_keeper = StationKeepingController(self.boat, waypoints, self)
-            return waypoints  # Return waypoints for visualization
+            # initialize station keeper
+            self.station_keeper = StationKeepingController(
+                self.boat, 
+                waypoints, 
+                self,
+                self.display.clear_paths if hasattr(self, 'display') else None
+            )
+            # get current position and calculate path to upwind point
+            current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
+            self.active_course = [current_pos] + self.leg(current_pos, self.station_keeper.upwind_target)
+            return self.active_course
             
-        elif plantype == "p":  # Precision
-            course.extend(self.leg(course[0], waypoints[1]))
-            course.extend(self.leg(waypoints[1], waypoints[2]))
-            course.extend(self.leg(waypoints[2], [(waypoints[0][0]+waypoints[3][0])/2,
-                                                (waypoints[0][1]+waypoints[3][1])/2]))
+        elif plantype == "p":  # precision
+            self.control_mode = "normal"
+            self.station_keeper = None
+            # calculate first two legs only
+            self.calculate_next_legs()
+            return self.active_course
         
-        return course
+    def calculate_next_legs(self):
+        """Calculate next two legs of the course"""
+        current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
+        
+        # clear active course but keep wind change points
+        self.active_course = self.wind_change_points.copy()
+        
+        # add current position if we don't have any points yet
+        if not self.active_course:
+            self.active_course.append(current_pos)
+            
+        # calculate path to next target
+        if self.current_target_idx < len(self.waypoints):
+            next_target = self.waypoints[self.current_target_idx % len(self.waypoints)]
+            next_leg = self.leg(self.active_course[-1], next_target)
+            self.active_course.extend(next_leg)
+            
+            # calculate one more leg if we need to loop back to start for endurance
+            if self.courseType == "e" and self.current_target_idx == len(self.waypoints) - 1:
+                next_leg = self.leg(self.active_course[-1], self.waypoints[0])
+            elif self.current_target_idx + 1 < len(self.waypoints):
+                next_leg = self.leg(self.active_course[-1], self.waypoints[(self.current_target_idx + 1) % len(self.waypoints)])
+            else:
+                next_leg = []
+            
+            self.active_course.extend(next_leg)
+
+        # update visualization if display exists
+        if hasattr(self, 'display'):
+            self.display.clear_paths()
+            self.display.boat.plotCourse(self.active_course, 'green')
 
     def leg(self, start, stop):
         """ 
@@ -142,6 +236,27 @@ class Controler():
     #             mcnm = CNM
     #     axis  = printA(angle.calc())
     #     return [ma,ma-(ma - axis)*2]
+
+    def handle_wind_change(self):
+        """Handle significant wind changes by recalculating path from current position"""
+        current_wind = self.boat.wind.angle.calc()
+        wind_diff = abs(printA(current_wind - self.initial_wind_angle))
+        
+        if wind_diff > 5 and self.control_mode != "station_keeping":
+            current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
+            
+            # add current position to wind change points
+            self.wind_change_points.append(current_pos)
+            
+            # recalculate next legs from current position
+            self.calculate_next_legs()
+            
+            # update stored wind angle
+            self.initial_wind_angle = current_wind
+            
+            return True
+        return False
+
     def VB(self,angle, wind): # reading boat polars
         angle =abs(angle.calc())
         angle %= 180
@@ -167,22 +282,27 @@ class Controler():
         # print(rtn) # prints a list corresponding to a boat angle relative to wind of lists of speeds corresponding to wind speeds
         return rtn
 
-
     def update(self, dt, rNoise=2, stability=1):
-        """Updates the rudder and sail to maintain course stability"""
+        """Main update loop"""
         if self.control_mode == "station_keeping" and self.station_keeper is not None:
-            # Let station keeper update its internal state and get next target
+            # give full control to station keeper
             self.station_keeper.update(dt)
-            current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
-            
-            # Make sure we have a valid course to follow even during station keeping
-            if not self.course or len(self.course) < 2:
-                self.course = [current_pos, self.station_keeper.upwind_target]
-            
-            # IMPORTANT: These need to run in station keeping mode too!
-            self.updateRudder(rNoise, stability)  
-            self.updateSails()
         else:
+            # normal course following logic
+            if self.target_reached():
+                self.wind_change_points = []
+                
+                if self.courseType == "e" and self.current_target_idx >= len(self.waypoints) - 1:
+                    self.current_target_idx = 0
+                    print("Completed lap, continuing endurance course")
+                else:
+                    self.current_target_idx += 1
+                
+                self.calculate_next_legs()
+                
+            elif self.handle_wind_change():
+                pass
+            
             self.updateRudder(rNoise, stability)
             self.updateSails()
 
@@ -211,28 +331,27 @@ class Controler():
         return False
 
     def nextP(self):
-        """
-        Determines when the boat has reached the next point on its course and checks if a tack or gybe is necessary
-        """
-        # Ensure course has at least two points
-        if not self.course or len(self.course) < 2:
+        """Determines when the boat has reached the next point on its course"""
+        # Ensure active_course has at least two points
+        if not self.active_course or len(self.active_course) < 2:
             current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
-            self.course = [current_pos, current_pos]
+            self.active_course = [current_pos, current_pos]
             return 0
 
         r = 5  # meters radius
         
-        dy = (self.boat.position.ycomp() - self.course[0][1])
-        dx = (self.boat.position.xcomp() - self.course[0][0])
+        dy = (self.boat.position.ycomp() - self.active_course[0][1])
+        dx = (self.boat.position.xcomp() - self.active_course[0][0])
         dist = degree2meter(math.sqrt(dx**2 + dy**2))
         
         if dist < r:
             a1 = Angle(1, round(math.atan2(dy, dx)*180/math.pi*10000)/10000)
-            a2 = Angle(1, round(math.atan2(self.course[1][1] - self.course[0][1],
-                                          self.course[1][0] - self.course[0][0])*180/math.pi*10000)/10000)
-            self.course.pop(0)
-            if len(self.course) == 1:  # Ensure we always have 2 points
-                self.course.append(self.course[0])
+            a2 = Angle(1, round(math.atan2(self.active_course[1][1] - self.active_course[0][1],
+                                        self.active_course[1][0] - self.active_course[0][0])*180/math.pi*10000)/10000)
+            self.active_course.pop(0)
+            
+            if len(self.active_course) == 1:  # Ensure we always have 2 points
+                self.active_course.append(self.active_course[0])
                 
             if self.isEnp(a1, a2):  # gybe necessary
                 return 1
@@ -240,28 +359,43 @@ class Controler():
                 return 2
         return 0
 
+    def target_reached(self):
+        """Check if current target waypoint has been reached"""
+        if self.current_target_idx >= len(self.waypoints) and self.courseType != "e":
+            return False
+            
+        current_target = self.waypoints[self.current_target_idx % len(self.waypoints)]
+        current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
+        
+        # Check if we're within 5 meters of target
+        dx = current_target[0] - current_pos[0]
+        dy = current_target[1] - current_pos[1]
+        dist = degree2meter(math.sqrt(dx**2 + dy**2))
+        
+        if dist < 5:  # 5 meter radius for reaching target
+            print(f"Reached target {self.current_target_idx % len(self.waypoints)}")
+            return True
+        return False
+
     def updateRudder(self, rNoise, stability):
-        """
-        Updates the rudder's angle in order to adjust the boat's heading
-        """
-        # Ensure course has at least two points
-        if not self.course or len(self.course) < 2:
+        """Updates the rudder's angle in order to adjust the boat's heading"""
+        # Ensure active_course has at least two points
+        if not self.active_course or len(self.active_course) < 2:
             current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
-            self.course = [current_pos, current_pos]
+            self.active_course = [current_pos, current_pos]
             
         self.nextP()  # gybe/tack check
 
-        if self.course[0][0] == -1:
+        if self.active_course[0][0] == -1:
             # mise à la cape sous GV
             pass
         else:
-            dx = self.course[0][0] - self.boat.position.xcomp()
-            dy = self.course[0][1] - self.boat.position.ycomp()
+            dx = self.active_course[0][0] - self.boat.position.xcomp()
+            dy = self.active_course[0][1] - self.boat.position.ycomp()
             target_angle = Angle(1, math.atan2(dy, dx) * 180 / math.pi)
             current_angle = self.boat.linearVelocity.angle
             dtheta = (target_angle - current_angle).calc()
 
-            # see the updateRudderAngle function for comments on the logic here
             rotV = self.boat.rotationalVelocity * 180/math.pi * 0.03 
 
             dtheta = printA(dtheta)

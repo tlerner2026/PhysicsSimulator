@@ -29,14 +29,18 @@ def rm_ansi(line):
 
 class boatDisplayShell():
     def __init__(self,Boat,ax,refLat):
-        self.ax = ax
         self.boat = Boat
+        self.ax = ax
         self.refLat = refLat
         self.target_point = None
         self.inner_waypoints = None
-        self.courseType = "s"  # Set course type
+        self.courseType = "e"  # Set course type
+        self.autopilot = None  # Initialize autopilot as None
+        self.wind_arrow = None
 
     def initAuto(self):
+        # self.courseType = "s" # for testing, forces mode
+
         if self.courseType == "p":  # Precision navigation
             self.waypoints = [
                 [self.boat.position.xcomp()-meter2degreeX(1.5,self.refLat),self.boat.position.ycomp()],
@@ -52,24 +56,27 @@ class boatDisplayShell():
                 [self.boat.position.xcomp()-meter2degreeX(25,self.refLat),self.boat.position.ycomp()],
             ]
         elif self.courseType == "s":  # Station keeping
-            # Station keeping outer box
+            # Define box center relative to boat's position (now offset 50m to the right)
+            box_center_x = self.boat.position.xcomp() + meter2degreeX(50, self.refLat)  
+            box_center_y = self.boat.position.ycomp()
+
+            # Station keeping outer box with center point offset
             self.waypoints = [
-                [self.boat.position.xcomp()+meter2degreeX(20,self.refLat), self.boat.position.ycomp()+meter2degreeY(20)],
-                [self.boat.position.xcomp()+meter2degreeX(20,self.refLat), self.boat.position.ycomp()-meter2degreeY(20)],
-                [self.boat.position.xcomp()-meter2degreeX(20,self.refLat), self.boat.position.ycomp()-meter2degreeY(20)],
-                [self.boat.position.xcomp()-meter2degreeX(20,self.refLat), self.boat.position.ycomp()+meter2degreeY(20)],
+                [box_center_x + meter2degreeX(20,self.refLat), box_center_y + meter2degreeY(20)],
+                [box_center_x + meter2degreeX(20,self.refLat), box_center_y - meter2degreeY(20)],
+                [box_center_x - meter2degreeX(20,self.refLat), box_center_y - meter2degreeY(20)],
+                [box_center_x - meter2degreeX(20,self.refLat), box_center_y + meter2degreeY(20)],
             ]
 
             # Calculate inner box for station keeping
-            center_x = sum(p[0] for p in self.waypoints) / len(self.waypoints)
-            center_y = sum(p[1] for p in self.waypoints) / len(self.waypoints)
             self.inner_waypoints = [
-                [center_x+meter2degreeX(10.0,self.refLat), center_y+meter2degreeY(10.0)],
-                [center_x+meter2degreeX(10.0,self.refLat), center_y-meter2degreeY(10.0)],
-                [center_x-meter2degreeX(10.0,self.refLat), center_y-meter2degreeY(10.0)],
-                [center_x-meter2degreeX(10.0,self.refLat), center_y+meter2degreeY(10.0)],
+                [box_center_x + meter2degreeX(10.0,self.refLat), box_center_y + meter2degreeY(10.0)],
+                [box_center_x + meter2degreeX(10.0,self.refLat), box_center_y - meter2degreeY(10.0)],
+                [box_center_x - meter2degreeX(10.0,self.refLat), box_center_y - meter2degreeY(10.0)],
+                [box_center_x - meter2degreeX(10.0,self.refLat), box_center_y + meter2degreeY(10.0)],
             ]
 
+        # Initialize the autopilot with the actual boat instance
         self.autopilot = Controler(self.boat)
         
         # Call buoy with appropriate arguments based on course type
@@ -125,10 +132,19 @@ class boatDisplayShell():
             self.target_point = self.ax.add_patch(plt.Circle((0, 0), meter2degreeY(0.3), color='red', zorder=5))  # Ensure it's drawn on top
             self.target_point.set_visible(False)
 
-    def plotCourse(self,course):
-        xs = [x[0] for x in course]
-        ys = [x[1] for x in course]
-        self.ax.plot(xs,ys, color = 'red')
+    def plotCourse(self, course, color='red'):
+        """Plot a course with tracking of created lines"""
+        if not course or len(course) < 2:
+            return
+            
+        # Plot course segments
+        for i in range(len(course)-1):
+            line = self.ax.plot([course[i][0], course[i+1][0]], 
+                            [course[i][1], course[i+1][1]], 
+                            color=color)[0]
+            # Store reference to the line for later removal
+            if hasattr(self, 'course_lines'):
+                self.course_lines.append(line)
 
     def createBoat(self):
         self.hullDisplay = []
@@ -161,10 +177,20 @@ class boatDisplayShell():
             self.forceDisplay.append(self.ax.plot([0,0],[0,0], color = 'lime')[0])
             for w in s.winches:
                 self.winches.append(self.ax.add_patch(plt.Circle((self.boat.position.xcomp()+meter2degreeX(w.position.xcomp(),self.refLat),self.boat.position.ycomp()+meter2degreeY(w.position.ycomp())),meter2degreeY(w.radius), color='r')))
+
         #boat net forces:
         self.forceDisplay.append(self.ax.plot([0,0],[0,0], color = 'black')[0])
         #Boat velocity
         self.forceDisplay.append(self.ax.plot([0,0],[0,0], color = 'magenta')[0])
+
+        # Add wind direction arrow
+        # Start with arbitrary position, we'll update it in update method
+        center_x = (self.ax.get_xlim()[0] + self.ax.get_xlim()[1]) / 2
+        center_y = (self.ax.get_ylim()[0] + self.ax.get_ylim()[1]) / 2
+        arrow_length = (self.ax.get_xlim()[1] - self.ax.get_xlim()[0]) * 0.1  # 10% of plot width
+        self.wind_arrow = self.ax.quiver(center_x, center_y, 0, 0, 
+                                    color='black', scale=2, scale_units='xy',
+                                    width=0.005, headwidth=4, headlength=5)
 
     def update(self, auto, showForces):
         for i in range(numCycle):
@@ -271,6 +297,23 @@ class boatDisplayShell():
             self.forceDisplay[-2].set_linestyle("None")
             self.forceDisplay[-1].set_linestyle("None")
 
+        # Update wind arrow position and direction
+        # Position arrow in top-right corner of visible area
+        visible_x = self.ax.get_xlim()
+        visible_y = self.ax.get_ylim()
+        arrow_x = visible_x[0] + (visible_x[1] - visible_x[0]) * 0.85  # 85% across
+        arrow_y = visible_y[0] + (visible_y[1] - visible_y[0]) * 0.85  # 85% up
+        
+        # Calculate arrow components based on wind angle
+        wind_angle_rad = math.radians(self.boat.wind.angle.calc())
+        arrow_length = (visible_x[1] - visible_x[0]) * 0.1  # 10% of plot width
+        dx = arrow_length * math.cos(wind_angle_rad)
+        dy = arrow_length * math.sin(wind_angle_rad)
+        
+        # Update arrow
+        self.wind_arrow.set_UVC(dx, dy)
+        self.wind_arrow.set_offsets([arrow_x, arrow_y])
+
 class display:
     def __init__(self,location,boat):
         self.f, self.axes = plt.subplot_mosaic('AAABD;AAACC', figsize=(12, 5))
@@ -279,11 +322,14 @@ class display:
         self.auto = False
         self.forceShow = True
         self.time = 0
+        self.course_lines = []  # Track active course lines
 
-        self.boat = boatDisplayShell(boat,self.axes['A'],boat.position.ycomp())
+        self.boat = boatDisplayShell(boat, self.axes['A'], boat.position.ycomp())
         self.map(location)
         self.boat.initAuto()
         self.boat.createBoat()
+
+        self.boat.course_lines = []
 
         self.axes['B'].set_title('Display Settings')
         self.axes['B'].axis('off')
@@ -311,8 +357,27 @@ class display:
         self.axes['D'].axis('off')
         self.boatControls()
 
+        self.course_lines = []  # Track active course lines
+
         #credits
         plt.figtext(0, 0.01, 'Map: © OpenStreetMap contributors', fontsize = 10)
+    
+    def clear_paths(self):
+        """Clear all path visualization lines"""
+        # Remove stored course lines
+        for line in self.boat.course_lines:
+            line.remove()  # Call remove() on the line itself
+        self.boat.course_lines = []
+        
+        # Double check for any remaining course lines
+        lines_to_remove = []
+        for line in self.axes['A'].get_lines():
+            if line.get_color() in ['red', 'green']:
+                lines_to_remove.append(line)
+                
+        # Remove the lines after identifying them
+        for line in lines_to_remove:
+            line.remove()
 
     def bUpdate(self,v):
         self.boat.boat.hulls[-1].angle = Angle(1,self.bRot.val)
@@ -325,7 +390,15 @@ class display:
                 self.boat.boat.sails[0].setSailRotation(Angle(1,self.sRot.val))
 
     def wUpdate(self,v):
+        """Handle wind angle updates from slider"""
         self.boat.boat.wind.angle = Angle(1,self.wRot.val+180)
+        
+        # Only recalculate if in autopilot mode
+        if self.auto and self.boat.autopilot:
+            # Try to handle wind change with new control system
+            if self.boat.autopilot.handle_wind_change():
+                self.clear_paths()
+                self.plotCourse(self.boat.autopilot.active_course, 'green')
     
     def spUpdate(self,v):
         global numCycle
@@ -397,27 +470,31 @@ class display:
     def autoF(self,t):
         self.auto = not self.auto
         if self.auto:
-            # Initialize the course
-            self.boat.autopilot.course = self.boat.autopilot.plan(self.boat.courseType, self.boat.waypoints)
+            # Set up the display reference in the controller
+            self.boat.autopilot.display = self
             
-            # For station keeping, make sure the controller is initialized
-            if self.boat.courseType == "s":
+            # Initialize the course with existing waypoints
+            initial_course = self.boat.autopilot.plan(self.boat.courseType, self.boat.waypoints)
+            
+            if self.boat.courseType == "s":  # Station keeping
+                print("Initializing station keeping...")
+                self.boat.autopilot.control_mode = "station_keeping"
                 if not hasattr(self.boat.autopilot, 'station_keeper'):
-                    # Pass the controller as the third argument
                     self.boat.autopilot.station_keeper = StationKeepingController(
-                        self.boat, 
+                        self.boat.boat,  # Pass the actual boat instance
                         self.boat.waypoints,
-                        self.boat.autopilot  # Pass the controller instance
+                        self.boat.autopilot,
+                        self.clear_paths
                     )
-                    self.boat.autopilot.control_mode = "station_keeping"
             else:
-                # Only plot initial course for non-station-keeping modes
-                self.boat.plotCourse(self.boat.autopilot.course)
+                self.clear_paths()
+                self.boat.plotCourse(initial_course, 'green')
                 
             self.autoButton.label.set_text('Auto Pilot: ON')
         else:
+            self.clear_paths()
             self.autoButton.label.set_text('Auto Pilot: OFF')
-            
+                
     def forceS(self,t):
         self.forceShow = not self.forceShow
         if self.forceShow:
@@ -498,19 +575,21 @@ class display:
         self.axes['A'].axis([min(x), max(x),min(y), max(y)])
         self.axes['A'].grid()
     
-    def updateCycle(self,f):
+    def updateCycle(self, f):
         if not self.pause:
             # Update boat state
-            self.boat.update(self.auto,self.forceShow)
-            self.time += 1/fps * numCycle # This is the definition for Henri time
+            self.boat.update(self.auto, self.forceShow)
+            self.time += 1/fps * numCycle
+            
+            # Update control displays
             self.bRot.set_val(printA(self.boat.boat.hulls[-1].angle.calc()))
-
+            
             if len(self.boat.boat.sails[0].winches) == 0:
                 self.sRot.set_val(printA(self.boat.boat.sails[0].angle.calc()))
             else:
                 self.sRot.set_val(printA(self.boat.boat.sails[0].winches[0].rot.calc()))
             
-            # If station keeping is active, handle path visualization
+            # Handle station keeping visualization
             if (self.auto and 
                 hasattr(self.boat.autopilot, 'control_mode') and 
                 self.boat.autopilot.control_mode == "station_keeping" and
@@ -518,27 +597,30 @@ class display:
                 
                 station_keeper = self.boat.autopilot.station_keeper
                 
-                # Clear any existing course lines (only the red ones)
-                for line in self.axes['A'].get_lines():
-                    if line.get_color() == 'red':
-                        line.remove()
-                
                 # Only draw path if we're not in DRIFTING state
                 if (hasattr(station_keeper, 'state') and 
                     station_keeper.state != "DRIFTING" and
                     hasattr(station_keeper, 'target_path') and 
                     station_keeper.target_path):
-                    # Draw new path if we have one
-                    path_x = [p[0] for p in station_keeper.target_path]
-                    path_y = [p[1] for p in station_keeper.target_path]
-                    self.axes['A'].plot(path_x, path_y, 'red', linewidth=1.5)
+                    self.clear_paths()
+                    self.boat.plotCourse(station_keeper.target_path, 'red')  # Call plotCourse through boat instance
+            
+            # Handle normal course updates
+            elif self.auto and hasattr(self.boat.autopilot, 'target_reached'):
+                if self.boat.autopilot.target_reached():
+                    # Clear and redraw path when target is reached
+                    self.clear_paths()
+                    self.boat.plotCourse(self.boat.autopilot.active_course, 'green')  # Call plotCourse through boat instance
             
             if self.track:
                 dx = self.axes['A'].get_xlim()[1]-self.axes['A'].get_xlim()[0]
                 dy = self.axes['A'].get_ylim()[1]-self.axes['A'].get_ylim()[0]
                 dm = max(dx,dy)
-                self.axes['A'].set_xlim(self.boat.boat.position.xcomp()-dm/2,self.boat.boat.position.xcomp()+dm/2)
-                self.axes['A'].set_ylim(self.boat.boat.position.ycomp()-dm/2,self.boat.boat.position.ycomp()+dm/2)
+                self.axes['A'].set_xlim(self.boat.boat.position.xcomp()-dm/2,
+                                      self.boat.boat.position.xcomp()+dm/2)
+                self.axes['A'].set_ylim(self.boat.boat.position.ycomp()-dm/2,
+                                      self.boat.boat.position.ycomp()+dm/2)
+            
             self.displayValues()
 
     def runAnimation(self):
@@ -575,5 +657,4 @@ if __name__ == "__main__":
     polars = input("recalc Polars Y/N:\n")
     if "y" in polars.lower():
         generatePolars(boat,"MarPol")
-    render = display(lakeShoreline,boat)
-    render.runAnimation()
+    render = display(lakeShore

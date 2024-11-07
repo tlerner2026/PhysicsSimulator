@@ -7,11 +7,12 @@ class StationKeepingController:
     Works in conjunction with the main Controller class but handles the specialized logic needed for drifting
     """
 
-    def __init__(self, boat, waypoints, controller):
+    def __init__(self, boat, waypoints, controller, clear_paths_func):
         self.boat = boat
-        self.outer_waypoints = waypoints  # defines the outer boundary we must stay within
-        self.state = "ENTERING"  # to be improved
+        self.outer_waypoints = waypoints
+        self.state = "ENTERING"
         self.controller = controller
+        self.clear_paths = clear_paths_func 
         
         # Calculate center of boundary box for reference point
         self.center_x = sum(p[0] for p in waypoints) / len(waypoints)
@@ -49,103 +50,85 @@ class StationKeepingController:
         - DRIFTING: drifting, with the goal of going along the wind angle
         - RETURNING: moving back to upwind point after drifting too far
         
-        uses standard Controller path following for movement states (ENTERING, REACHING_UPWIND, RETURNING) but custom behavior for DRIFTING state
-
-        Args:
-            dt: time step in seconds
+        uses standard Controller path following for movement states (ENTERING, REACHING_UPWIND, RETURNING) 
+        but custom behavior for DRIFTING state
         """
-
         current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
         
-        # state machine logic
+        current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
+        
+        # State machine logic
         if not self.is_in_box(self.outer_waypoints):
-            # outside boundary box - need to enter
             self.state = "ENTERING"
-            # use standard path planning to reach upwind target
-            self.controller.course = [current_pos] + self.controller.leg(current_pos, self.upwind_target)
-            self.target_path = self.controller.course[:]  # store for visualization; figure out how to erase paths after drawn
-            self.current_path_index = 0
+            self.target_path = self.controller.leg(current_pos, self.upwind_target)
+            self.controller.course = [current_pos] + self.target_path
+            print(f"ENTERING: {current_pos} -> {self.upwind_target}")
 
         elif self.state == "ENTERING":
             if self.is_in_box(self.outer_waypoints):
-                # successfully entered box - now reach upwind point
                 self.state = "REACHING_UPWIND"
-                self.controller.course = [current_pos] + self.controller.leg(current_pos, self.upwind_target)
-                self.target_path = self.controller.course[:]
-                self.current_path_index = 0
+                self.target_path = self.controller.leg(current_pos, self.upwind_target)
+                self.controller.course = [current_pos] + self.target_path
+                print(f"REACHING_UPWIND: {current_pos} -> {self.upwind_target}")
 
         elif self.state == "REACHING_UPWIND":
+            if not self.controller.course or len(self.controller.course) < 2:
+                self.target_path = self.controller.leg(current_pos, self.upwind_target)
+                self.controller.course = [current_pos] + self.target_path
+                
             if self.at_point(self.upwind_target):
-                # reached upwind point - start drifting
                 self.state = "DRIFTING"
-                # clear all path data as we stay in drifting state
-                self.return_path = []
                 self.target_path = []
-                self.current_path_index = 0
                 self.controller.course = []
-
-                # this doesn't work, not sure why, will try to fix
-                # Clear visualization of path 
-                #for line in self.controller.boat.ax.get_lines():
-                    #if line.get_color() == 'red':
-                        #line.remove()
+                print("DRIFTING")
 
         elif self.state == "DRIFTING":
             if not self.is_near_upwind_point() and not self.is_in_box(self.inner_box):
-                # Drifted too far, return to upwind point
                 self.state = "RETURNING"
-                self.return_path = self.controller.leg(current_pos, self.upwind_target)
-                self.controller.course = [current_pos] + self.return_path
-                self.target_path = self.controller.course[:]
-                self.current_path_index = 0
-            else:
-                # Get wind angle and flip it 180° to point into wind
-                wind_angle = (self.boat.wind.angle.calc() + 180) % 360
-                
-                # Set drift target in direction facing into wind
-                # for some reason here, the simulated boat has a tendency to drift to the right of the wind
-                    # probably some logic with the simulation, or with the inate order that leg puts vectors k and j in
-                    # should be irrelevant in practice because the boat makes a new path every time it drifts out of bounds
-                drift_dx = math.cos(math.radians(wind_angle)) * meter2degreeX(20, self.boat.refLat)
-                drift_dy = math.sin(math.radians(wind_angle)) * meter2degreeY(20)
-                drift_target = [current_pos[0] + drift_dx, current_pos[1] + drift_dy]
-                self.controller.course = [current_pos, drift_target]
-
-                # tentative rudder updates:
-                self.controller.updateRudder(2, 1)  # 2, 1 - default
-                self.controller.updateSails()
-                return 
+                self.target_path = self.controller.leg(current_pos, self.upwind_target)
+                self.controller.course = [current_pos] + self.target_path
+                print("RETURNING")
 
         elif self.state == "RETURNING":
+            if not self.controller.course or len(self.controller.course) < 2:
+                self.target_path = self.controller.leg(current_pos, self.upwind_target)
+                self.controller.course = [current_pos] + self.target_path
+                
             if self.at_point(self.upwind_target):
-                # successfully returned to upwind point - resume drifting
                 self.state = "DRIFTING"
-                self.return_path = []
                 self.target_path = []
-                self.current_path_index = 0
                 self.controller.course = []
-                # clear visualization, also doesn't work, will try to fix
-                for line in self.controller.boat.ax.get_lines():
-                    if line.get_color() == 'red':
-                        line.remove()
-            elif len(self.return_path) > 0:
-                # ppdate progress along return path
-                if self.at_point(self.return_path[self.current_path_index]):
-                    if self.current_path_index < len(self.return_path) - 1:
-                        self.current_path_index += 1
-                        self.controller.course = self.return_path[self.current_path_index:]
+                print("Back to DRIFTING")
 
-        # use main controller's methods for actual boat control
-        self.controller.updateRudder(2, 1)
+        # Update visualization
+        if hasattr(self.controller, 'display'):
+            self.controller.display.clear_paths()
+            if self.controller.course:  # Only plot if we have a course
+                self.controller.display.boat.plotCourse(self.controller.course, 'red')
+
+        # Update controls using controller's methods
+        if self.state == "DRIFTING":
+            # Get current wind angle and add 180° to point into wind
+            target_angle = Angle(1, self.boat.wind.angle.calc() + 180)
+            self.controller.updateRudderAngle(2, 1, target_angle)
+        else:
+            self.controller.updateRudder(2, 1)
+        
         self.controller.updateSails()
+
+        # Update visualization if needed
+        # if self.clear_paths and self.controller.course:
+            # self.clear_paths()
+            # if hasattr(self.controller, 'display'):
+                # self.controller.display.boat.plotCourse(self.controller.course, 'red')
 
     def calculate_upwind_point(self):
         """
         Calculate upwind point opposite to wind direction.
         For 90° wind (from north), this will be the top point of circle (270°).
         """
-        # Add 180° to wind angle to get upwind direction
-        # wind_angle = (self.boat.wind.angle.calc() + 180) % 360
+        #Add 180° to wind angle to get upwind direction
+        #wind_angle = (self.boat.wind.angle.calc() + 180) % 360
 
         # don't add 180° to start at the bottom of the circle facing toward the wind
         wind_angle = (self.boat.wind.angle.calc()) % 360
