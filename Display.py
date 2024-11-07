@@ -657,4 +657,5 @@ if __name__ == "__main__":
     polars = input("recalc Polars Y/N:\n")
     if "y" in polars.lower():
         generatePolars(boat,"MarPol")
-    render = display(lakeShore
+    render = display(lakeShoreline,boat)
+    render.runAnimation()
