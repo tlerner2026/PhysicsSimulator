@@ -365,10 +365,11 @@ class display:
     def clear_paths(self):
         """Clear all path visualization lines"""
         # Remove stored course lines
-        for line in self.boat.course_lines:
-            line.remove()  # Call remove() on the line itself
-        self.boat.course_lines = []
-        
+        if hasattr(self.boat, 'course_lines'):
+            for line in self.boat.course_lines:
+                line.remove()
+            self.boat.course_lines = []
+            
         # Double check for any remaining course lines
         lines_to_remove = []
         for line in self.axes['A'].get_lines():
@@ -389,16 +390,25 @@ class display:
             if self.sRot.val != self.boat.boat.sails[0].winches[0].rot.calc():
                 self.boat.boat.sails[0].setSailRotation(Angle(1,self.sRot.val))
 
-    def wUpdate(self,v):
+    def wUpdate(self, v):
         """Handle wind angle updates from slider"""
-        self.boat.boat.wind.angle = Angle(1,self.wRot.val+180)
-        
-        # Only recalculate if in autopilot mode
-        if self.auto and self.boat.autopilot:
-            # Try to handle wind change with new control system
-            if self.boat.autopilot.handle_wind_change():
-                self.clear_paths()
-                self.plotCourse(self.boat.autopilot.active_course, 'green')
+        try:
+            # Update wind angle
+            self.boat.boat.wind.angle = Angle(1, self.wRot.val + 180)
+            
+            # Only recalculate if in autopilot mode
+            if self.auto and hasattr(self.boat, 'autopilot') and self.boat.autopilot:
+                # Try to handle wind change with new control system
+                if hasattr(self.boat.autopilot, 'handle_wind_change'):
+                    if self.boat.autopilot.handle_wind_change():
+                        # Clear existing paths
+                        self.clear_paths()
+                        # Plot new course if we have an active course
+                        if hasattr(self.boat.autopilot, 'active_course') and self.boat.autopilot.active_course:
+                            self.boat.plotCourse(self.boat.autopilot.active_course, 'green')
+        except Exception as e:
+            print(f"Error updating wind direction: {str(e)}")
+            # Optionally reset to previous state or take other recovery action; not currently necessary
     
     def spUpdate(self,v):
         global numCycle
