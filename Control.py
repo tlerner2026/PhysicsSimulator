@@ -179,6 +179,8 @@ class Controler():
             - k and j: vectors representing optimal tacking directions relative to the wind
             - D, Dk, Dj: determinants that solve the linear system, finding how much of k and j vectors are needed to account for the winds effect while reaching the destination
             - a, b: scaling factors for vectors k and j respectively, determining how much the boat should follow each vector (tacking directions)
+
+            returns the number of steps along the k vector to reach the intermediate point
             """
             v = Vector(Angle(1,round(math.atan2(stop[1]- start[1],stop[0]- start[0])*180/math.pi*10000)/10000),math.sqrt((stop[0]- start[0])**2+(stop[1]- start[1])**2))
             k = Vector(self.boat.wind.angle+Angle(1,180+self.polars[-1][0]),1) # to the right of the no sail zone
@@ -192,7 +194,7 @@ class Controler():
             j.norm *= b
             # calculates the ideal tacking point
             # calculates the ideal intermediate point between start and end if you are going upwind
-            ans = [[start[0]+k.xcomp(),start[1]+k.ycomp()],stop]
+            ans = [[start[0]+k.xcomp(),start[1]+k.ycomp()],stop] # returns steps on k vector
             return  ans
         elif apparentAngle > self.polars[-1][1]: #downwind
             """
@@ -203,6 +205,8 @@ class Controler():
             - k and j: vectors representing two optimal gybing directions based on the wind
             - D, Dk, Dj: determinants that solve the linear system, finding how much of k and j vectors are needed to account for the winds effect while reaching the destination
             - a, b: scaling factors for vectors k and j respectively, determining how much the boat should follow each vector (gybing directions)
+
+            returns the number of steps along the k vector to reach the intermediate point
             """
             v = Vector(Angle(1,round(math.atan2(stop[1]- start[1],stop[0]- start[0])*180/math.pi*10000)/10000),math.sqrt((stop[0]- start[0])**2+(stop[1]- start[1])**2))
             k = Vector(self.boat.wind.angle+Angle(1,180+self.polars[-1][1]),1)
