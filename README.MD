@@ -1,4 +1,5 @@
 **This is the third iteration of the Kehillah Sailbot boat simulation program for the 2024-2025 Sailbot competition**\
+
 *This is a simulation program to allow for the creation of a navigation program, I don't expect this to run on the final boat.*
 # Main Goal:
 * Simulate aero and hydro dynamic forces on boat sails and hulls
