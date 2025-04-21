@@ -20,6 +20,10 @@ class Boat:
         #current boat position
         self.position = Vector(Angle(1,90),0)
 
+        self.prevHeadingError = 0
+        self.headingError = 0
+        self.headingErrorVelocity = 0
+
     def setPos(self,pos):
         self.position = pos
     def resetValues(self):
@@ -64,6 +68,10 @@ class Boat:
         #d theta = w*dt +1/2*alfa*dt^2
         self.angle += Angle(1,(self.rotationalVelocity*dt+(alfa*dt**2)/2)*180/math.pi)#
         #self.angle += Angle(1,self.rotationalVelocity*dt+(sI*dt**2)/2)
+
+    def updateHeadingErrorVelocity(self, dt):
+        self.headingErrorVelocity  = (self.headingError-self.prevHeadingError)/dt
+        self.prevHeadingError = self.headingError
 
     def updateLinearVelocity(self,dt):
         #not using extend is on purpose, extend modifies the variable
