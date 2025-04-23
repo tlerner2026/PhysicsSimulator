@@ -22,6 +22,24 @@ def aoa(x):
     return (44/90)*x
     # return -0.5*x+44#4/9
 
+class PIDController:
+    def __init__(self, Kp, Ki, Kd):
+        self.Kp = Kp
+        self.Ki = Ki
+        self.Kd = Kd
+        self.integral = 0
+        self.last_error = None
+
+    def update(self, error, dt):
+        P = self.Kp * error
+        self.integral += error * dt
+        I = self.Ki * self.integral
+        D = 0
+        if self.last_error is not None:
+            D = self.Kd * (error - self.last_error) / dt
+        self.last_error = error
+        return P + I + D
+
 class Controler():
 
     def __init__(self, Boat, polars="test.pol"):
@@ -35,6 +53,8 @@ class Controler():
         self.control_mode = "normal"
         self.courseType = None  # store course type
         self.station_keeper = None  # initialize station keeper as None
+        self.rudder_pid = PIDController(Kp=12.0, Ki=0.02, Kd=0.5)
+
         
     
     def recalculate_path(self):
@@ -307,7 +327,7 @@ class Controler():
             elif self.handle_wind_change():
                 pass
             
-            self.updateRudder(rNoise, stability)
+            self.updateRudder(dt, rNoise, stability)
             self.updateSails()
 
     def isEnp(self,a1,a2): # Enp means something like "Enroulement de Point" (French for "gybe point")
@@ -381,30 +401,30 @@ class Controler():
             return True
         return False
 
-    def updateRudder(self, rNoise, stability):
-        """Updates the rudder's angle in order to adjust the boat's heading"""
-        # Ensure active_course has at least two points
+
+    def updateRudder(self, dt, rNoise, stability):
         if not self.active_course or len(self.active_course) < 2:
             current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
             self.active_course = [current_pos, current_pos]
-            
-        self.nextP()  # gybe/tack check
 
-        if self.active_course[0][0] == -1:
-            # mise à la cape sous GV
-            pass
-        else:
-            dx = self.active_course[0][0] - self.boat.position.xcomp()
-            dy = self.active_course[0][1] - self.boat.position.ycomp()
-            target_angle = Angle(1, math.atan2(dy, dx) * 180 / math.pi)
-            current_angle = self.boat.linearVelocity.angle
-            dtheta = (target_angle - current_angle).calc()
+        self.nextP()
 
-            rotV = self.boat.rotationalVelocity * 180/math.pi * 0.03 
+        dx = self.active_course[0][0] - self.boat.position.xcomp()
+        dy = self.active_course[0][1] - self.boat.position.ycomp()
+        target_angle = Angle(1, math.atan2(dy, dx) * 180 / math.pi)
+        current_angle = self.boat.linearVelocity.angle
+        heading_error = printA((target_angle - current_angle).calc())
 
-            dtheta = printA(dtheta)
-            coeff = 2/math.pi * math.atan((dtheta)/40 - rotV/stability)
-            self.boat.hulls[-1].angle = Angle(1, -10*coeff) * rNoise
+        heading_error_scaled = heading_error / 180.0
+
+        rudder_correction = self.rudder_pid.update(heading_error_scaled, dt)
+        rudder_angle = max(min(rudder_correction, 20), -20) * -1
+
+
+        # No rNoise scaling here
+        self.boat.hulls[-1].angle = Angle(1, rudder_angle)
+
+
     
     def updateRudderAngle(self,rNoise,stability,angle):
         """

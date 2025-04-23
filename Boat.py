@@ -1,6 +1,8 @@
 import math
 from Variables import *
 import copy
+from Control import Controler
+
 
 class Boat:
     def __init__(self, hulls, sails, wind,mass =55,refLat=37):
@@ -23,6 +25,7 @@ class Boat:
         self.prevHeadingError = 0
         self.headingError = 0
         self.headingErrorVelocity = 0
+        self.controler = Controler(self)
 
     def setPos(self,pos):
         self.position = pos
@@ -46,6 +49,8 @@ class Boat:
         #update position and rotation
         self.updatePosition(dt)
         self.updateRotation(dt)
+        self.updateHeadingErrorVelocity(dt)
+        self.controler.updateRudder(dt, rNoise=2, stability=1)  # Pass dt here!
 
     def updatePosition(self, dt):
         ax = (self.forces["sails"]+self.forces["hulls"]).xcomp()/self.mass
