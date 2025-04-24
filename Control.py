@@ -53,7 +53,7 @@ class Controler():
         self.control_mode = "normal"
         self.courseType = None  # store course type
         self.station_keeper = None  # initialize station keeper as None
-        self.rudder_pid = PIDController(Kp=12.0, Ki=0.02, Kd=0.5)
+        self.rudder_pid = PIDController(Kp=31.0, Ki=1.95, Kd=10) #KP max = 62, 
 
         
     
