@@ -50,6 +50,12 @@ class boatDisplayShell():
             ]
         elif self.courseType == "e":  # Endurance
             self.waypoints = [
+
+                # [self.boat.position.xcomp()-meter2degreeX(25,self.refLat),self.boat.position.ycomp()],
+                # [self.boat.position.xcomp()-meter2degreeX(25,self.refLat),self.boat.position.ycomp()+meter2degreeY(15)],
+                # [self.boat.position.xcomp()+meter2degreeX(25,self.refLat),self.boat.position.ycomp()+meter2degreeY(15)],
+                # [self.boat.position.xcomp()+meter2degreeX(25,self.refLat),self.boat.position.ycomp()],
+                
                 [self.boat.position.xcomp()+meter2degreeX(25,self.refLat),self.boat.position.ycomp()],
                 [self.boat.position.xcomp()+meter2degreeX(25,self.refLat),self.boat.position.ycomp()+meter2degreeY(15)],
                 [self.boat.position.xcomp()-meter2degreeX(25,self.refLat),self.boat.position.ycomp()+meter2degreeY(15)],
