@@ -46,6 +46,8 @@ class boatDisplayShell():
                 [self.boat.position.xcomp()-meter2degreeX(1.5,self.refLat),self.boat.position.ycomp()],
                 [self.boat.position.xcomp()-meter2degreeX(1.5,self.refLat)-meter2degreeX(25,self.refLat),self.boat.position.ycomp()-meter2degreeY(25*math.sqrt(3))],
                 [self.boat.position.xcomp()+meter2degreeX(1.5,self.refLat)+meter2degreeX(25,self.refLat),self.boat.position.ycomp()-meter2degreeY(25*math.sqrt(3))],
+                # [self.boat.position.xcomp()+meter2degreeX(3,self.refLat),self.boat.position.ycomp()+meter2degreeY(3*math.sqrt(3))],
+                # [self.boat.position.xcomp(),self.boat.position.ycomp()+meter2degreeY(5*math.sqrt(3))],
                 [self.boat.position.xcomp()+meter2degreeX(1.5,self.refLat),self.boat.position.ycomp()],
             ]
         elif self.courseType == "e":  # Endurance
