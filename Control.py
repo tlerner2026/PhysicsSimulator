@@ -49,22 +49,32 @@ class Controler():
         self.active_course = []  # current active leg pairs being followed
         self.wind_change_points = []  # track points added due to wind changes
         self.current_target_idx = 0  # index of next target in original waypoints
-        self.initial_wind_angle = self.boat.wind.angle.calc()
+        self.initial_wind_angle = (Angle(1,180)-((self.boat.wind.angle-self.boat.linearVelocity.angle)*-1)).calc()
         self.control_mode = "normal"
         self.courseType = None  # store course type
         self.station_keeper = None  # initialize station keeper as None
         self.rudder_pid = PIDController(Kp=70.0, Ki= 0.5, Kd=35.0) #KP max = 62, 
+        self.heading_error_scaled = 0
+        self.heading_error = 0
+        self.count = 0
 
     def recalculate_path(self):
+        
         """
         Recalculate path including the next waypoint we were heading towards
         """
-        current_wind = self.boat.wind.angle.calc()
-        wind_diff = abs(printA(current_wind - self.initial_wind_angle))
-        
-        if wind_diff > 5 and self.control_mode != "station_keeping":
+        # current_wind = self.boat.wind.angle.calc()
+        # wind_diff = abs(printA(current_wind - self.initial_wind_angle))
+
+
+        if self.control_mode != "station_keeping":
             # get current position
             current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
+            self.active_course = self.wind_change_points.copy()
+        
+            # add current position if we don't have any points yet
+            if not self.active_course:
+                self.active_course.append(current_pos)
             
             # find which waypoint we were heading to
             target_idx = 0
@@ -72,7 +82,7 @@ class Controler():
             current_course_idx = 0
             
             # first find where we are in the current course
-            for i, point in enumerate(self.course):
+            for i, point in enumerate(self.active_course):
                 dist = math.sqrt((point[0] - current_pos[0])**2 + (point[1] - current_pos[1])**2)
                 if dist < min_dist:
                     min_dist = dist
@@ -81,7 +91,7 @@ class Controler():
             # then find the next waypoint we were heading to
             for i, waypoint in enumerate(self.waypoints):
                 # check if this waypoint appears in the course after our current position
-                for point in self.course[current_course_idx:]:
+                for point in self.active_course[current_course_idx:]:
                     if abs(point[0] - waypoint[0]) < 1e-6 and abs(point[1] - waypoint[1]) < 1e-6:
                         target_idx = i
                         break
@@ -101,8 +111,9 @@ class Controler():
                 new_course.extend(next_leg)
             
             # replace entire course with new calculation
-            self.course = new_course
-            self.initial_wind_angle = current_wind
+            self.active_course = new_course
+            
+            # self.initial_wind_angle = current_wind
             return True
                 
         return False
@@ -145,14 +156,15 @@ class Controler():
     def calculate_next_legs(self):
         """Calculate next two legs of the course"""
         current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
-        
+
+       
         # clear active course but keep wind change points
         self.active_course = self.wind_change_points.copy()
         
         # add current position if we don't have any points yet
         if not self.active_course:
             self.active_course.append(current_pos)
-            
+        
         # calculate path to next target
         if self.current_target_idx < len(self.waypoints):
             next_target = self.waypoints[self.current_target_idx % len(self.waypoints)]
@@ -168,6 +180,7 @@ class Controler():
                 next_leg = []
             
             self.active_course.extend(next_leg)
+        
 
         # update visualization if display exists
         if hasattr(self, 'display'):
@@ -184,9 +197,17 @@ class Controler():
         """
         angle = Angle(1,math.atan2(stop[1]-start[1],stop[0]-start[0])*180/math.pi)
         apparentAngle = abs(printA(Angle.norm(self.boat.wind.angle+Angle(1,180)-angle).calc()))
+        
+        relative_wind = abs(printA(Angle.norm(Angle(1,180)-((self.boat.wind.angle-self.boat.linearVelocity.angle)*-1)).calc()))
+
+        global_wind = (self.boat.linearVelocity.angle - Angle(1,180)-((self.boat.wind.angle-self.boat.linearVelocity.angle)*-1))
+
+        #######    print(Angle.norm(self.boat.wind.angle-self.boat.linearVelocity.angle - angle).calc())
+
         # apparent angle is the wind angle relative to the boat between -180 and +180 
         # get the last element of self.polars
-        if apparentAngle < self.polars[-1][0]: # upwind
+        if (relative_wind < 53):
+        ##### if apparentAngle < self.polars[-1][0]: # upwind
             # We want to get to stop only using the upwind BVMG
             """
             we want to get to stop only using the upwind BVMG
@@ -201,8 +222,8 @@ class Controler():
             returns the number of steps along the k vector to reach the intermediate point
             """
             v = Vector(Angle(1,round(math.atan2(stop[1]- start[1],stop[0]- start[0])*180/math.pi*10000)/10000),math.sqrt((stop[0]- start[0])**2+(stop[1]- start[1])**2))
-            k = Vector(self.boat.wind.angle+Angle(1,180+self.polars[-1][0]),1) # to the right of the no sail zone
-            j = Vector(self.boat.wind.angle+Angle(1,180-self.polars[-1][0]),1) # to the left of the no sail zone
+            k = Vector(global_wind+Angle(1,180+self.polars[-1][0]),1) # to the right of the no sail zone
+            j = Vector(global_wind+Angle(1,180-self.polars[-1][0]),1) # to the left of the no sail zone
             D = np.linalg.det(np.array([[k.xcomp(),j.xcomp()],[k.ycomp(),j.ycomp()]]))
             Dk = np.linalg.det(np.array([[v.xcomp(),j.xcomp()],[v.ycomp(),j.ycomp()]]))
             Dj = np.linalg.det(np.array([[k.xcomp(),v.xcomp()],[k.ycomp(),v.ycomp()]]))
@@ -214,7 +235,8 @@ class Controler():
             # calculates the ideal intermediate point between start and end if you are going upwind
             ans = [[start[0]+k.xcomp(),start[1]+k.ycomp()],stop] # returns steps on k vector
             return  ans
-        elif apparentAngle > self.polars[-1][1]: #downwind
+        #elif apparentAngle > self.polars[-1][1]: #downwind
+        elif (relative_wind > 127):
             """
             variables:
             - v: vector representing the direction and distance from start to stop
@@ -227,8 +249,8 @@ class Controler():
             returns the number of steps along the k vector to reach the intermediate point
             """
             v = Vector(Angle(1,round(math.atan2(stop[1]- start[1],stop[0]- start[0])*180/math.pi*10000)/10000),math.sqrt((stop[0]- start[0])**2+(stop[1]- start[1])**2))
-            k = Vector(self.boat.wind.angle+Angle(1,180+self.polars[-1][1]),1)
-            j = Vector(self.boat.wind.angle+Angle(1,180-self.polars[-1][1]),1)
+            k = Vector(global_wind+Angle(1,180+self.polars[-1][1]),1)
+            j = Vector(global_wind+Angle(1,180-self.polars[-1][1]),1)
             D = np.linalg.det(np.array([[k.xcomp(),j.xcomp()],[k.ycomp(),j.ycomp()]]))
             Dk = np.linalg.det(np.array([[v.xcomp(),j.xcomp()],[v.ycomp(),j.ycomp()]]))
             Dj = np.linalg.det(np.array([[k.xcomp(),v.xcomp()],[k.ycomp(),v.ycomp()]]))
@@ -261,10 +283,8 @@ class Controler():
 
     def handle_wind_change(self):
         """Handle significant wind changes by recalculating path from current position"""
-        current_wind = self.boat.wind.angle.calc()
-        wind_diff = abs(printA(current_wind - self.initial_wind_angle))
-        
-        if wind_diff > 5 and self.control_mode != "station_keeping":
+
+        if self.control_mode != "station_keeping":
             current_pos = [self.boat.position.xcomp(), self.boat.position.ycomp()]
             
             # add current position to wind change points
@@ -272,9 +292,6 @@ class Controler():
             
             # recalculate next legs from current position
             self.calculate_next_legs()
-            
-            # update stored wind angle
-            self.initial_wind_angle = current_wind
             
             return True
         return False
@@ -311,18 +328,22 @@ class Controler():
             self.station_keeper.update(dt)
         else:
             # normal course following logic
+            self.count += 1
             if self.target_reached():
                 self.wind_change_points = []
                 
                 if self.courseType == "e" and self.current_target_idx >= len(self.waypoints) - 1:
                     self.current_target_idx = 0
+                    self.count = 0
                     print("Completed lap, continuing endurance course")
                 else:
                     self.current_target_idx += 1
                 
                 self.calculate_next_legs()
                 
-            elif self.handle_wind_change():
+            elif (self.count == 30):
+                self.count = 0
+                self.calculate_next_legs()
                 pass
             
             self.updateRudder(dt, rNoise, stability)
@@ -411,16 +432,23 @@ class Controler():
         dy = self.active_course[0][1] - self.boat.position.ycomp()
         target_angle = Angle(1, math.atan2(dy, dx) * 180 / math.pi)
         current_angle = self.boat.linearVelocity.angle
-        heading_error = printA((target_angle - current_angle).calc())
+        self.heading_error = printA((target_angle - current_angle).calc())
 
-        heading_error_scaled = heading_error / 180.0
+        self.heading_error_scaled = self.heading_error / 180.0
 
-        rudder_correction = self.rudder_pid.update(heading_error_scaled, dt)
+        rudder_correction = self.rudder_pid.update(self.heading_error_scaled, dt)
         rudder_angle = max(min(rudder_correction, 20), -20) * -1
 
 
+        dtheta = (target_angle - current_angle).calc()
+        rotV = self.boat.rotationalVelocity*180/math.pi *0.03
+        dtheta = printA(dtheta)
+        coeff = 2/math.pi * math.atan((dtheta)/40 - rotV/stability)
+        self.boat.hulls[-1].angle = Angle(1,-10*coeff)*rNoise
+        
+
         # No rNoise scaling here
-        self.boat.hulls[-1].angle = Angle(1, rudder_angle)
+       #self.boat.hulls[-1].angle = Angle(1, rudder_angle)
 
 
     

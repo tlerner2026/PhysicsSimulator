@@ -26,6 +26,7 @@ class Boat:
         self.headingError = 0
         self.headingErrorVelocity = 0
         self.controler = Controler(self)
+        self.count = 0
 
     def setPos(self,pos):
         self.position = pos
@@ -47,10 +48,16 @@ class Boat:
             self.updateHullForcesandMoments()
 
         #update position and rotation
+        # self.count += 1
+        # print(self.count)
+        # if (self.count == 30):
+        #     self.count = 0
+        #     #self.controler.handle_wind_change()
         self.updatePosition(dt)
         self.updateRotation(dt)
         self.updateHeadingErrorVelocity(dt)
         self.controler.updateRudder(dt, rNoise=2, stability=1)  # Pass dt here!
+        
 
     def updatePosition(self, dt):
         ax = (self.forces["sails"]+self.forces["hulls"]).xcomp()/self.mass
@@ -141,6 +148,8 @@ class Boat:
 
     def globalAparentWind(self):
         # returns global aparent wind on boat
+        #print("Relative wind angele: ", + (Angle(1,180)-((self.wind.angle-self.linearVelocity.angle)*-1)).calc())
+
         return self.wind-self.linearVelocity
     
 
