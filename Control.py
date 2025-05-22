@@ -57,6 +57,8 @@ class Controler():
         self.heading_error_scaled = 0
         self.heading_error = 0
         self.count = 0
+        self.wind_arr = np.array([])
+        self.median = 0
 
     def recalculate_path(self):
         
@@ -187,6 +189,13 @@ class Controler():
             self.display.clear_paths()
             self.display.boat.plotCourse(self.active_course, 'green')
 
+    def wind_smoother(self):
+        self.wind_arr = np.append(self.wind_arr, (Angle(1,180)-((self.boat.wind.angle-self.boat.linearVelocity.angle)*-1)).calc())
+        if (self.count == 20):
+            self.median = np.median(self.wind_arr)
+            self.wind_arr = np.array([])
+            return self.median
+    
     def leg(self, start, stop):
         """ 
         The purpose of leg is when given a start point and stop point it checks if the straight line
@@ -265,6 +274,7 @@ class Controler():
 
         # if the straightline doesnt go upwind or downwind it returns the end buoy
         return [stop]
+    
     
     # NOTE: I've desided using best course to next mark while probably the optimal solution brings in a level of complexity that we do not
     # have the time to handle, thus we'll be simplifying.
@@ -346,6 +356,7 @@ class Controler():
                 self.calculate_next_legs()
                 pass
             
+            self.wind_smoother()
             self.updateRudder(dt, rNoise, stability)
             self.updateSails()
 
